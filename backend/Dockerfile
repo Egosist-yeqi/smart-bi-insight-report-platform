@@ -6,7 +6,11 @@ ENV PYTHONPATH=/app
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY app ./app
 COPY tests ./tests
+COPY entrypoint.sh ./entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]
