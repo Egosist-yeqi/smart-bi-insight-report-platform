@@ -6,7 +6,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.analytics import router as analytics_router
+from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
+from app.api.metadata import router as metadata_router
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging
@@ -116,4 +119,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(health_router)
+    app.include_router(metadata_router)
+    app.include_router(dashboard_router)
+    app.include_router(analytics_router)
     return app
