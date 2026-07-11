@@ -2,7 +2,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -64,8 +76,7 @@ class ReportTemplate(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        server_default=func.now(),
-        server_onupdate=func.now(),
+        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
         nullable=False,
     )
 
@@ -90,8 +101,7 @@ class AIProviderConfig(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        server_default=func.now(),
-        server_onupdate=func.now(),
+        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
         nullable=False,
     )
 

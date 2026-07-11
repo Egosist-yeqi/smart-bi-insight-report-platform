@@ -7,7 +7,7 @@ from app.db.models import Base
 from app.db.session import get_engine
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def db_session():
     command.upgrade(Config("alembic.ini"), "head")
     engine = get_engine()
