@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db.models import QueryHistory
+from app.db.models import QueryHistory, SalesOrder
 from app.db.seed import seed_database
 from app.db.session import get_session
 from app.main import create_app
@@ -24,7 +24,7 @@ def api_client(db_session):
     app.dependency_overrides.clear()
 
 
-def test_report_and_history_endpoints(api_client):
+def test_report_and_history_endpoints(api_client, db_session):
     report = api_client.post(
         "/api/reports/generate",
         json={"report_type": "月报", "modules": ["overview", "region"]},
@@ -39,7 +39,13 @@ def test_report_and_history_endpoints(api_client):
         "region",
     ]
     assert report_data["engine"] == "local"
-    assert report_data["period"] == "2026-06-01"
+    latest_order = db_session.scalar(
+        select(SalesOrder.order_date).order_by(SalesOrder.order_date.desc()).limit(1)
+    )
+    assert latest_order is not None
+    expected_period = f"{date(latest_order.year, latest_order.month, 1).isoformat()}/{latest_order.isoformat()}"
+    assert report_data["period"] == expected_period
+    assert report_data["title"].startswith(expected_period)
     assert report_data["generated_at"] in report_data["markdown"]
     assert history.status_code == 200
     assert history.json()["data"][0]["question"]

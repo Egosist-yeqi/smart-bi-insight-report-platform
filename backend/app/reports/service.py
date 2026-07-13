@@ -1,15 +1,21 @@
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from html import escape as html_escape
+import re
+from unicodedata import normalize
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.analytics.schemas import DashboardFilters
-from app.analytics.service import detect_anomalies, forecast_next_month, get_dashboard
+from app.analytics.service import detect_anomalies, forecast_next_month
 from app.core.errors import AppError
+from app.db.models import SalesOrder
 from app.reports.schemas import ReportRequest, ReportResult, ReportSection
 
 
+ZERO = Decimal("0")
 REPORT_MODULES = ("overview", "region", "ranking", "anomaly", "forecast")
 MODULE_TITLES = {
     "overview": "销售概览",
@@ -18,7 +24,64 @@ MODULE_TITLES = {
     "anomaly": "异常指标",
     "forecast": "趋势预测",
 }
+MARKDOWN_ESCAPES = str.maketrans(
+    {
+        "\\": "\\\\",
+        "`": "\\`",
+        "*": "\\*",
+        "_": "\\_",
+        "{": "\\{",
+        "}": "\\}",
+        "[": "\\[",
+        "]": "\\]",
+        "(": "\\(",
+        ")": "\\)",
+        "#": "\\#",
+        "+": "\\+",
+        "-": "\\-",
+        ".": "\\.",
+        "!": "\\!",
+        "|": "\\|",
+    }
+)
 Narrative = Callable[[ReportSection], str | None]
+
+
+@dataclass(frozen=True)
+class _ReportPeriod:
+    start: date | None
+    end: date | None
+    policy: str
+
+    @property
+    def label(self) -> str:
+        if self.start is None or self.end is None:
+            return "暂无可用数据"
+        return f"{self.start.isoformat()}/{self.end.isoformat()}"
+
+
+@dataclass(frozen=True)
+class _PeriodMetrics:
+    amount: Decimal
+    quantity: int
+    profit_rate: Decimal
+
+
+@dataclass(frozen=True)
+class _Ranking:
+    name: str
+    amount: Decimal
+    quantity: int
+    order_count: int
+    profit_rate: Decimal
+
+
+@dataclass(frozen=True)
+class _ReportData:
+    period: _ReportPeriod
+    metrics: _PeriodMetrics
+    regions: list[_Ranking]
+    products: list[_Ranking]
 
 
 class ReportModulesRequiredError(AppError):
@@ -39,27 +102,33 @@ def generate_report(
     if not selected_modules:
         raise ReportModulesRequiredError()
 
-    dashboard = get_dashboard(session, DashboardFilters())
-    period = _period(dashboard.trend)
-    anomalies = detect_anomalies(session, as_of=_next_month(period)) if period else None
+    report_data = _report_data(session, request.report_type)
+    anomalies = (
+        detect_anomalies(session, as_of=_next_month(report_data.period.end))
+        if report_data.period.end
+        else None
+    )
     forecast = forecast_next_month(session)
     sections = [
-        _section(module, dashboard, anomalies, forecast)
+        _section(module, report_data, anomalies, forecast)
         for module in selected_modules
     ]
-    engine = "local"
-    if narrative is not None:
-        sections = [_with_narrative(section, narrative) for section in sections]
-        engine = "ai"
+    sections, narrative_count = _add_narratives(sections, narrative)
+    engine = "ai" if narrative_count else "local"
 
     generated_at = datetime.now(timezone.utc)
-    display_period = period.isoformat() if period else "暂无可用数据"
-    title = f"{display_period} 智能 BI 经营分析{request.report_type}"
+    title = f"{report_data.period.label} 智能 BI 经营分析{request.report_type}"
     return ReportResult(
         title=title,
-        period=display_period,
+        period=report_data.period.label,
         sections=sections,
-        markdown=_markdown(title, display_period, sections, generated_at),
+        markdown=_markdown(
+            title,
+            report_data.period,
+            sections,
+            engine,
+            generated_at,
+        ),
         engine=engine,
         generated_at=generated_at,
     )
@@ -70,21 +139,114 @@ def _selected_modules(modules: list[str]) -> list[str]:
     return [module for module in REPORT_MODULES if module in selected]
 
 
-def _period(trend) -> date | None:
-    return trend[-1].month if trend else None
+def _report_data(session: Session, report_type: str) -> _ReportData:
+    period = _period_for(session, report_type)
+    predicates = _period_predicates(period)
+    return _ReportData(
+        period=period,
+        metrics=_metrics(session, predicates),
+        regions=_ranking(session, predicates, SalesOrder.region, SalesOrder.region),
+        products=_ranking(
+            session,
+            predicates,
+            SalesOrder.product_name,
+            SalesOrder.product_id,
+            SalesOrder.product_name,
+        ),
+    )
+
+
+def _period_for(session: Session, report_type: str) -> _ReportPeriod:
+    first_order, latest_order = session.execute(
+        select(func.min(SalesOrder.order_date), func.max(SalesOrder.order_date))
+    ).one()
+    if latest_order is None:
+        return _ReportPeriod(None, None, "当前数据集为空。")
+    if report_type == "周报":
+        start = latest_order - timedelta(days=6)
+        return _ReportPeriod(start, latest_order, "最新数据锚定的连续7日。")
+    if report_type == "月报":
+        return _ReportPeriod(
+            date(latest_order.year, latest_order.month, 1),
+            latest_order,
+            "最新数据月，自月初统计至数据锚点。",
+        )
+    return _ReportPeriod(first_order, latest_order, "自定义报告当前支持全量可用数据范围。")
+
+
+def _period_predicates(period: _ReportPeriod) -> list:
+    if period.start is None or period.end is None:
+        return [SalesOrder.id.is_(None)]
+    return [SalesOrder.order_date >= period.start, SalesOrder.order_date <= period.end]
+
+
+def _metrics(session: Session, predicates: list) -> _PeriodMetrics:
+    amount = func.coalesce(func.sum(SalesOrder.amount), ZERO)
+    profit = func.coalesce(func.sum(SalesOrder.profit), ZERO)
+    row = session.execute(
+        select(
+            amount.label("amount"),
+            func.coalesce(func.sum(SalesOrder.quantity), 0).label("quantity"),
+            profit.label("profit"),
+        ).where(*predicates)
+    ).one()
+    amount_value = _decimal(row.amount)
+    profit_value = _decimal(row.profit)
+    return _PeriodMetrics(
+        amount=amount_value,
+        quantity=int(row.quantity or 0),
+        profit_rate=profit_value / amount_value if amount_value else ZERO,
+    )
+
+
+def _ranking(session: Session, predicates: list, dimension, *group_by) -> list[_Ranking]:
+    amount = func.coalesce(func.sum(SalesOrder.amount), ZERO)
+    profit = func.coalesce(func.sum(SalesOrder.profit), ZERO)
+    rows = session.execute(
+        select(
+            dimension.label("name"),
+            amount.label("amount"),
+            func.coalesce(func.sum(SalesOrder.quantity), 0).label("quantity"),
+            profit.label("profit"),
+            func.count(SalesOrder.id).label("order_count"),
+        )
+        .where(*predicates)
+        .group_by(*group_by)
+        .order_by(amount.desc(), dimension.asc())
+    )
+    return [
+        _Ranking(
+            name=str(row.name),
+            amount=_decimal(row.amount),
+            quantity=int(row.quantity or 0),
+            order_count=int(row.order_count or 0),
+            profit_rate=_decimal(row.profit) / _decimal(row.amount)
+            if _decimal(row.amount)
+            else ZERO,
+        )
+        for row in rows
+    ]
+
+
+def _decimal(value: Decimal | int | None) -> Decimal:
+    return Decimal(value or ZERO)
 
 
 def _next_month(month: date) -> date:
     return date(month.year + (month.month == 12), month.month % 12 + 1, 1)
 
 
-def _section(module, dashboard, anomalies, forecast) -> ReportSection:
+def _previous_month(month: date) -> date:
+    return date(month.year - (month.month == 1), (month.month - 2) % 12 + 1, 1)
+
+
+def _section(module, report_data, anomalies, forecast) -> ReportSection:
     builders = {
-        "overview": lambda: _overview(dashboard),
-        "region": lambda: _region(dashboard),
-        "ranking": lambda: _ranking(dashboard),
-        "anomaly": lambda: _anomaly(anomalies),
-        "forecast": lambda: _forecast(forecast),
+        "overview": lambda: _overview(report_data),
+        "region": lambda: _region(report_data),
+        "ranking": lambda: _ranking_section(report_data),
+        "anomaly": lambda: _anomaly(anomalies, report_data.period.end),
+        "forecast": lambda: _forecast(forecast, report_data.period.end),
     }
     return ReportSection(
         id=module,
@@ -93,89 +255,151 @@ def _section(module, dashboard, anomalies, forecast) -> ReportSection:
     )
 
 
-def _overview(dashboard) -> str:
-    if not dashboard.trend:
+def _overview(report_data: _ReportData) -> str:
+    if report_data.period.end is None:
         return "当前数据集为空；暂无可用销售数据。"
-    latest = dashboard.trend[-1]
+    metrics = report_data.metrics
     return (
-        f"{latest.month:%Y-%m}销售额{_currency(latest.amount)}，"
-        f"销售数量{latest.quantity:,}。累计销售额{_currency(dashboard.kpis.amount)}，"
-        f"累计毛利率{dashboard.kpis.profit_rate:.2%}。"
+        f"统计周期{report_data.period.label}销售额{_currency(metrics.amount)}，"
+        f"销售数量{metrics.quantity:,}，毛利率{metrics.profit_rate:.2%}。"
     )
 
 
-def _region(dashboard) -> str:
-    if not dashboard.regions:
-        return "当前数据集为空；暂无可用区域销售数据。"
-    top_region = dashboard.regions[0]
+def _region(report_data: _ReportData) -> str:
+    if not report_data.regions:
+        return "当前报告周期暂无可用区域销售数据。"
+    top_region = report_data.regions[0]
     return (
-        f"{top_region.name}是当前销售额最高区域，销售额{_currency(top_region.amount)}，"
-        f"订单量{top_region.order_count:,}，毛利率{top_region.profit_rate:.2%}。"
+        f"{_safe_inline(top_region.name)}是统计周期内销售额最高区域，"
+        f"销售额{_currency(top_region.amount)}，订单量{top_region.order_count:,}，"
+        f"毛利率{top_region.profit_rate:.2%}。"
     )
 
 
-def _ranking(dashboard) -> str:
-    if not dashboard.products:
-        return "当前数据集为空；暂无可用产品排行数据。"
-    top_product = dashboard.products[0]
+def _ranking_section(report_data: _ReportData) -> str:
+    if not report_data.products:
+        return "当前报告周期暂无可用产品排行数据。"
+    top_product = report_data.products[0]
     return (
-        f"销售额最高产品为{top_product.name}，销售额{_currency(top_product.amount)}，"
-        f"销售数量{top_product.quantity:,}。"
+        f"统计周期内销售额最高产品为{_safe_inline(top_product.name)}，"
+        f"销售额{_currency(top_product.amount)}，销售数量{top_product.quantity:,}。"
     )
 
 
-def _anomaly(anomalies) -> str:
+def _anomaly(anomalies, period_end: date | None) -> str:
+    if period_end is None:
+        return "当前数据集为空；无法生成异常参考。"
+    latest_month = date(period_end.year, period_end.month, 1)
+    previous_month = _previous_month(latest_month)
+    reference = (
+        f"异常参考：{latest_month:%Y-%m}与{previous_month:%Y-%m}的月度区域销售额对比，"
+        "不等同于报告统计周期。"
+    )
     if anomalies is None or not anomalies.items:
-        return "本周期未发现超过阈值的显著异常波动。"
-    return "；".join(
-        f"{item.region}{item.metric}{item.delta:+.2%}：{item.evidence}"
+        return f"{reference}本参考周期未发现超过阈值的显著异常波动。"
+    details = "；".join(
+        _safe_inline(f"{item.region}{item.metric}{item.delta:+.2%}：{item.evidence}")
         for item in anomalies.items
     )
+    return f"{reference}{details}"
 
 
-def _forecast(forecast) -> str:
+def _forecast(forecast, period_end: date | None) -> str:
+    reference = (
+        f"预测参考：使用截至{period_end.isoformat()}的完整可用历史数据。"
+        if period_end
+        else "预测参考：当前数据集为空。"
+    )
     if forecast.prediction is None:
-        return "历史数据不足，无法生成下月销售额预测。"
+        return f"{reference}历史数据不足，无法生成下月销售额预测。"
     prediction = forecast.prediction
     return (
-        f"预计{prediction.month:%Y-%m}销售额约{_currency(prediction.amount)}。"
+        f"{reference}预计{prediction.month:%Y-%m}销售额约{_currency(prediction.amount)}。"
         f"{prediction.basis}预测仅供经营分析参考。"
     )
 
 
-def _with_narrative(section: ReportSection, narrative: Narrative) -> ReportSection:
+def _add_narratives(
+    sections: list[ReportSection], narrative: Narrative | None
+) -> tuple[list[ReportSection], int]:
+    if narrative is None:
+        return sections, 0
+    results = [_with_narrative(section, narrative) for section in sections]
+    return [section for section, _ in results], sum(applied for _, applied in results)
+
+
+def _with_narrative(
+    section: ReportSection, narrative: Narrative
+) -> tuple[ReportSection, bool]:
     try:
         addition = narrative(section)
     except Exception:
-        return section
-    if not addition or not addition.strip():
-        return section
-    return section.model_copy(update={"content": f"{section.content}\n\n{addition.strip()}"})
+        return section, False
+    if not isinstance(addition, str):
+        return section, False
+    safe_addition = _safe_paragraphs(addition)
+    if not safe_addition:
+        return section, False
+    return (
+        section.model_copy(update={"content": f"{section.content}\n\n{safe_addition}"}),
+        True,
+    )
+
+
+def _safe_inline(value: str) -> str:
+    return _escape_markdown(_collapse_whitespace(value))
+
+
+def _safe_paragraphs(value: str) -> str:
+    normalized = _normalize_text(value)
+    paragraphs = [
+        _escape_markdown(_collapse_whitespace(paragraph))
+        for paragraph in re.split(r"\n\s*\n+", normalized)
+    ]
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
+
+
+def _normalize_text(value: str) -> str:
+    normalized = normalize("NFKC", value).replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(character if character == "\n" or character >= " " else " " for character in normalized)
+
+
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(_normalize_text(value).split())
+
+
+def _escape_markdown(value: str) -> str:
+    return html_escape(value, quote=False).translate(MARKDOWN_ESCAPES)
 
 
 def _markdown(
     title: str,
-    period: str,
+    period: _ReportPeriod,
     sections: list[ReportSection],
+    engine: str,
     generated_at: datetime,
 ) -> str:
     lines = [
         f"# {title}",
         "",
-        f"统计周期：{period}",
+        f"统计周期：{period.label}",
+        f"统计口径：{period.policy}",
         f"生成时间：{_timestamp(generated_at)}",
         "",
     ]
     for section in sections:
         lines.extend((f"## {section.title}", "", section.content, ""))
-    lines.extend(
-        (
-            "## 说明",
-            "",
-            "本报告由业务数据和本地规则生成，预测与归因结果仅供经营分析参考。",
-        )
-    )
+    lines.extend(("## 说明", "", _source_label(engine)))
     return "\n".join(lines)
+
+
+def _source_label(engine: str) -> str:
+    if engine == "ai":
+        return (
+            "数据来源：本地业务数据和本地规则；部分或全部章节附加了 AI 叙述。"
+            "预测与归因结果仅供经营分析参考。"
+        )
+    return "数据来源：本地业务数据和本地规则。预测与归因结果仅供经营分析参考。"
 
 
 def _currency(value: Decimal) -> str:
