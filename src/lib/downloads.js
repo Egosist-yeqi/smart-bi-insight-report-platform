@@ -1,5 +1,10 @@
-function escapeCsv(value) {
+export function sanitizeCsvCell(value) {
   const text = value === undefined || value === null ? '' : String(value);
+  return /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
+function escapeCsv(value) {
+  const text = sanitizeCsvCell(value);
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
@@ -11,8 +16,12 @@ export function rowsToCsv(rows) {
     .join('\r\n');
 }
 
+export function createDownloadBlob(content, mime = 'text/plain;charset=utf-8') {
+  return new Blob([`\ufeff${content}`], { type: mime });
+}
+
 export function downloadText(filename, content, mime = 'text/plain;charset=utf-8') {
-  const blob = new Blob([content], { type: mime });
+  const blob = createDownloadBlob(content, mime);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -556,6 +556,10 @@ th {
   text-align: center;
 }
 
+.workspace > .async-panel {
+  grid-column: 1 / -1;
+}
+
 .async-panel--error {
   color: #9b3d25;
 }

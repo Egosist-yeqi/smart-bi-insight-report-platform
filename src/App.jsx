@@ -29,5 +29,5 @@ export default function App() {
     系统配置: <ConfigView onProviderChange={() => { provider.reload(); health.reload(); }} />,
   };
 
-  return <AppShell active={active} setActive={setActive} question={question} setQuestion={setQuestion} onRun={runQuery} healthResource={health} onRefreshStatus={() => { health.reload(); provider.reload(); }} provider={provider.data?.data}>{views[active]}</AppShell>;
+  return <AppShell active={active} setActive={setActive} question={question} setQuestion={setQuestion} onRun={runQuery} healthResource={health} onRefreshStatus={() => { health.reload(); provider.reload(); }} providerResource={provider}>{views[active]}</AppShell>;
 }
