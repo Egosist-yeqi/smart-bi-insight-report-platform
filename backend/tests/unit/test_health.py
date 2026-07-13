@@ -2,20 +2,19 @@ from fastapi.testclient import TestClient
 
 
 def test_health_reports_app_and_database(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "mysql+pymysql://test:test@mysql/test")
-    monkeypatch.setenv("APP_ENCRYPTION_KEY", "test-encryption-key")
-
     from app.core.config import get_settings
+    from app.db.session import get_engine
 
     get_settings.cache_clear()
+    get_engine.cache_clear()
 
     try:
         from app.main import create_app
 
         monkeypatch.setattr("app.api.health.database_status", lambda: "up")
-        client = TestClient(create_app())
-
-        response = client.get("/api/health")
+        monkeypatch.setattr("app.api.health.seeded_order_count", lambda: 0)
+        with TestClient(create_app()) as client:
+            response = client.get("/api/health")
 
         assert response.status_code == 200
         assert response.json()["data"] == {
@@ -25,5 +24,7 @@ def test_health_reports_app_and_database(monkeypatch):
             "ai_mode": "local",
         }
         assert response.json()["request_id"]
+        assert get_engine.cache_info().currsize == 0
     finally:
+        get_engine.cache_clear()
         get_settings.cache_clear()
