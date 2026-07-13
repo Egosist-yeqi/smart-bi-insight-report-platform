@@ -43,7 +43,7 @@ wsl --status
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-首次运行会原子地创建未跟踪的 `.env`，生成随机 MySQL 密码和 Fernet 主密钥，并构建、启动服务。已有 `.env` 不会被覆盖；脚本只会校验必需键名、超时配置和 Fernet 格式，并以不显示值的错误提示需要补充的配置。
+首次运行会原子地创建未跟踪的 `.env`，生成随机 MySQL 密码和 Fernet 主密钥，并构建、启动服务。已有 `.env` 不会被覆盖：脚本会保留现有值、密钥和文件编码；如果只缺少非敏感的 `QUERY_TIMEOUT_SECONDS` 或 `AI_DEFAULT_TIMEOUT_SECONDS`，会原子地补入默认值 `5` 和 `30`。其他必需配置或 Fernet 格式不正确时，脚本只显示需要处理的键名，不显示任何值。
 
 启动脚本确认 `app=up`、`database=up` 且 `seeded_orders=540` 后输出访问地址：
 
@@ -58,13 +58,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 ```
 
-重置会删除本 Compose 项目的 MySQL 数据卷并重新初始化 540 条示例订单。该操作不可恢复，必须显式确认：
+重置会先验证已解析的仓库根目录、固定的正常项目名和唯一允许删除的 `mysql_data` 卷，然后只删除该正常项目的 MySQL 数据卷并重新初始化 540 条示例订单。该操作不可恢复，必须显式确认：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset.ps1 -ConfirmReset
 ```
 
-完整测试会启动 MySQL 和仅用于测试的 `mock-llm`，执行 Alembic、后端 Pytest、前端测试和构建。无论成功或失败，脚本都会清理测试专用 `mock-llm` 容器，不会删除默认 MySQL 数据卷：
+完整测试使用独立的固定 `-test` Compose 项目、独立 MySQL 数据卷和仅供测试的 `mock-llm`，没有宿主机端口映射，也不会读取或修改正常项目的数据库、卷或 AI 配置。它执行 Alembic、后端 Pytest、前端测试和构建；无论成功、部分启动失败还是测试失败，都会清理整个测试项目及其测试卷。若缺少 `node_modules` 或 Vite 工具，脚本会先按 `package-lock.json` 运行 `npm.cmd ci`：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 
 ### 安全边界
 
-`.env`、数据库卷、日志和构建输出均不纳入 Git。不要把 `.env`、截图中的密钥或自有 API Key 发到仓库、工单或聊天记录。Compose 发布端口仅监听 `127.0.0.1`，但本机账户仍应受到操作系统保护。
+`.env`、数据库卷、日志和构建输出均不纳入 Git。不要把 `.env`、截图中的密钥或自有 API Key 发到仓库、工单或聊天记录。正常运行、停止和重置都固定到本仓库的 Compose 文件和正常项目名；测试固定到独立测试 Compose 文件和项目名，外部 `COMPOSE_FILE` 或 `COMPOSE_PROJECT_NAME` 不会改变目标。Compose 发布端口仅监听 `127.0.0.1`，但本机账户仍应受到操作系统保护。
 
 ## 核心能力
 

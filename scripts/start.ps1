@@ -2,44 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-
-function Get-DockerExecutable {
-    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
-    if ($null -ne $dockerCommand) {
-        $candidate = if ($dockerCommand.Source) { $dockerCommand.Source } else { $dockerCommand.Path }
-        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
-            return $candidate
-        }
-    }
-
-    $dockerDesktopCli = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
-    if (Test-Path -LiteralPath $dockerDesktopCli) {
-        return $dockerDesktopCli
-    }
-
-    throw 'Docker CLI was not found. Install Docker Desktop with winget install --exact --id Docker.DockerDesktop, then start Docker Desktop and try again.'
-}
-
-function Assert-DockerReady {
-    param([string]$Docker)
-
-    & $Docker info *> $null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Docker Desktop is not ready. Start Docker Desktop, wait for its engine to start, then run this command again.'
-    }
-}
-
-function Invoke-DockerCompose {
-    param(
-        [string]$Docker,
-        [string[]]$Arguments
-    )
-
-    & $Docker compose @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Docker Compose command failed. Review Docker Desktop status and run docker compose ps for service details.'
-    }
-}
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Get-SecureRandomBytes {
     param([int]$Length)
@@ -67,48 +30,42 @@ function ConvertTo-FernetKey {
     return ([Convert]::ToBase64String($Bytes).Replace('+', '-').Replace('/', '_'))
 }
 
-function Write-NewEnvironmentFile {
+function Get-EnvironmentDocument {
     param([string]$EnvironmentPath)
 
-    $mysqlPassword = ConvertTo-LowerHex (Get-SecureRandomBytes -Length 24)
-    $mysqlRootPassword = ConvertTo-LowerHex (Get-SecureRandomBytes -Length 24)
-    $fernetKey = ConvertTo-FernetKey (Get-SecureRandomBytes -Length 32)
-    $lines = @(
-        'MYSQL_DATABASE=smart_bi',
-        'MYSQL_USER=smart_bi',
-        "MYSQL_PASSWORD=$mysqlPassword",
-        "MYSQL_ROOT_PASSWORD=$mysqlRootPassword",
-        "DATABASE_URL=mysql+pymysql://smart_bi:$mysqlPassword@mysql:3306/smart_bi",
-        "APP_ENCRYPTION_KEY=$fernetKey",
-        'FRONTEND_ORIGIN=http://localhost:8080',
-        'QUERY_TIMEOUT_SECONDS=5',
-        'AI_DEFAULT_TIMEOUT_SECONDS=30'
-    )
-    $temporaryPath = "$EnvironmentPath.$([Guid]::NewGuid().ToString('N')).tmp"
-    $content = ($lines -join [Environment]::NewLine) + [Environment]::NewLine
+    $bytes = [System.IO.File]::ReadAllBytes($EnvironmentPath)
+    $offset = 0
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $encoding = New-Object System.Text.UTF8Encoding($true, $true)
+        $offset = 3
+    }
+    elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+        $encoding = New-Object System.Text.UnicodeEncoding($false, $true, $true)
+        $offset = 2
+    }
+    elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+        $encoding = New-Object System.Text.UnicodeEncoding($true, $true, $true)
+        $offset = 2
+    }
+    else {
+        $encoding = New-Object System.Text.UTF8Encoding($false, $true)
+    }
 
     try {
-        [System.IO.File]::WriteAllText($temporaryPath, $content, (New-Object System.Text.UTF8Encoding($false)))
-        [System.IO.File]::Move($temporaryPath, $EnvironmentPath)
-        return $true
+        $text = $encoding.GetString($bytes, $offset, $bytes.Length - $offset)
     }
     catch {
-        if (Test-Path -LiteralPath $temporaryPath) {
-            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path -LiteralPath $EnvironmentPath) {
-            return $false
-        }
-        throw
+        throw 'Existing .env is not valid UTF-8 or UTF-16 text. Convert it deliberately before retrying; no values were changed.'
     }
+    return [pscustomobject]@{ Text = $text; Encoding = $encoding }
 }
 
 function Get-EnvironmentValues {
-    param([string]$EnvironmentPath)
+    param([pscustomobject]$Document)
 
     $values = @{}
     $lineNumber = 0
-    foreach ($line in [System.IO.File]::ReadAllLines($EnvironmentPath, [System.Text.Encoding]::UTF8)) {
+    foreach ($line in ($Document.Text -split "`r?`n")) {
         $lineNumber++
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith('#')) {
@@ -120,6 +77,70 @@ function Get-EnvironmentValues {
         $values[$Matches[1]] = $Matches[2].Trim()
     }
     return $values
+}
+
+function Write-EnvironmentTextAtomically {
+    param(
+        [string]$EnvironmentPath,
+        [pscustomobject]$Document,
+        [string]$Text
+    )
+
+    $body = $Document.Encoding.GetBytes($Text)
+    $preamble = $Document.Encoding.GetPreamble()
+    $bytes = New-Object byte[] ($preamble.Length + $body.Length)
+    [System.Array]::Copy($preamble, 0, $bytes, 0, $preamble.Length)
+    [System.Array]::Copy($body, 0, $bytes, $preamble.Length, $body.Length)
+    $temporaryPath = "$EnvironmentPath.$([Guid]::NewGuid().ToString('N')).tmp"
+    $backupPath = "$temporaryPath.backup"
+
+    try {
+        [System.IO.File]::WriteAllBytes($temporaryPath, $bytes)
+        [System.IO.File]::Replace($temporaryPath, $EnvironmentPath, $backupPath)
+    }
+    catch {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+        throw 'Could not update the existing .env atomically. No replacement was made; close any editor holding the file and retry.'
+    }
+    if (Test-Path -LiteralPath $backupPath) {
+        Remove-Item -LiteralPath $backupPath -Force
+    }
+}
+
+function Write-NewEnvironmentFile {
+    param([string]$EnvironmentPath)
+
+    $mysqlPassword = ConvertTo-LowerHex (Get-SecureRandomBytes -Length 24)
+    $mysqlRootPassword = ConvertTo-LowerHex (Get-SecureRandomBytes -Length 24)
+    $fernetKey = ConvertTo-FernetKey (Get-SecureRandomBytes -Length 32)
+    $content = @(
+        'MYSQL_DATABASE=smart_bi',
+        'MYSQL_USER=smart_bi',
+        "MYSQL_PASSWORD=$mysqlPassword",
+        "MYSQL_ROOT_PASSWORD=$mysqlRootPassword",
+        "DATABASE_URL=mysql+pymysql://smart_bi:$mysqlPassword@mysql:3306/smart_bi",
+        "APP_ENCRYPTION_KEY=$fernetKey",
+        'FRONTEND_ORIGIN=http://localhost:8080',
+        'QUERY_TIMEOUT_SECONDS=5',
+        'AI_DEFAULT_TIMEOUT_SECONDS=30'
+    ) -join [Environment]::NewLine
+    $temporaryPath = "$EnvironmentPath.$([Guid]::NewGuid().ToString('N')).tmp"
+
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, "$content$([Environment]::NewLine)", (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::Move($temporaryPath, $EnvironmentPath)
+    }
+    catch {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $EnvironmentPath) {
+            return
+        }
+        throw
+    }
 }
 
 function Assert-ValidFernetKey {
@@ -139,32 +160,40 @@ function Assert-ValidFernetKey {
     }
 }
 
-function Assert-EnvironmentIsValid {
+function Assert-EnvironmentIsValidAndAddDefaults {
     param([string]$EnvironmentPath)
 
-    $requiredNames = @(
-        'MYSQL_DATABASE',
-        'MYSQL_USER',
-        'MYSQL_PASSWORD',
-        'MYSQL_ROOT_PASSWORD',
-        'DATABASE_URL',
-        'APP_ENCRYPTION_KEY',
-        'FRONTEND_ORIGIN',
-        'QUERY_TIMEOUT_SECONDS',
-        'AI_DEFAULT_TIMEOUT_SECONDS'
-    )
-    $values = Get-EnvironmentValues -EnvironmentPath $EnvironmentPath
+    $document = Get-EnvironmentDocument -EnvironmentPath $EnvironmentPath
+    $values = Get-EnvironmentValues -Document $document
+    $requiredNames = @('MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'DATABASE_URL', 'APP_ENCRYPTION_KEY', 'FRONTEND_ORIGIN')
     $missing = @($requiredNames | Where-Object { -not $values.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($values[$_]) })
     if ($missing.Count -gt 0) {
         throw ("Existing .env is missing required non-empty values: {0}. Add only the named values and rerun; existing secrets were not changed." -f ($missing -join ', '))
     }
-
     Assert-ValidFernetKey -Key $values['APP_ENCRYPTION_KEY']
-    foreach ($timeoutName in @('QUERY_TIMEOUT_SECONDS', 'AI_DEFAULT_TIMEOUT_SECONDS')) {
-        $timeout = 0
-        if (-not [int]::TryParse($values[$timeoutName], [ref]$timeout) -or $timeout -lt 1) {
-            throw "$timeoutName must be a positive integer. Existing secrets were not changed."
+
+    $defaultsToAdd = @()
+    foreach ($default in @(@{ Name = 'QUERY_TIMEOUT_SECONDS'; Value = '5' }, @{ Name = 'AI_DEFAULT_TIMEOUT_SECONDS'; Value = '30' })) {
+        if ($values.ContainsKey($default.Name)) {
+            $timeout = 0
+            if (-not [int]::TryParse($values[$default.Name], [ref]$timeout) -or $timeout -lt 1) {
+                throw "$($default.Name) must be a positive integer. Existing secrets were not changed."
+            }
         }
+        else {
+            $defaultsToAdd += "$($default.Name)=$($default.Value)"
+        }
+    }
+
+    if ($defaultsToAdd.Count -gt 0) {
+        $newline = if ($document.Text.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $updatedText = $document.Text
+        if ($updatedText.Length -gt 0 -and -not ($updatedText.EndsWith("`n") -or $updatedText.EndsWith("`r"))) {
+            $updatedText += $newline
+        }
+        $updatedText += ($defaultsToAdd -join $newline) + $newline
+        Write-EnvironmentTextAtomically -EnvironmentPath $EnvironmentPath -Document $document -Text $updatedText
+        Write-Host 'Added missing non-secret timeout defaults to the existing .env.'
     }
 }
 
@@ -186,22 +215,20 @@ function Wait-ForHealthyApplication {
     throw 'Application did not become healthy within 180 seconds. Expected app=up, database=up, and seeded_orders=540. Run docker compose ps and docker compose logs backend.'
 }
 
-$repositoryRoot = Split-Path -Parent $PSScriptRoot
-Set-Location -LiteralPath $repositoryRoot
+$context = New-ComposeContext -ProjectName $script:NormalComposeProjectName -ComposeFileName 'compose.yaml'
+Set-Location -LiteralPath $context.RepositoryRoot
 
 $docker = Get-DockerExecutable
 Assert-DockerReady -Docker $docker
 
-$environmentPath = Join-Path $repositoryRoot '.env'
+$environmentPath = Join-Path $context.RepositoryRoot '.env'
 if (-not (Test-Path -LiteralPath $environmentPath)) {
-    $created = Write-NewEnvironmentFile -EnvironmentPath $environmentPath
-    if ($created) {
-        Write-Host 'Created a new local .env with generated database credentials and encryption key.'
-    }
+    Write-NewEnvironmentFile -EnvironmentPath $environmentPath
+    Write-Host 'Created a new local .env with generated database credentials and encryption key.'
 }
-Assert-EnvironmentIsValid -EnvironmentPath $environmentPath
+Assert-EnvironmentIsValidAndAddDefaults -EnvironmentPath $environmentPath
 
-Invoke-DockerCompose -Docker $docker -Arguments @('up', '-d', '--build')
+Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--build')
 Wait-ForHealthyApplication
 
 Write-Host 'Application: http://localhost:8080'

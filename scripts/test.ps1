@@ -2,53 +2,20 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-
-function Get-DockerExecutable {
-    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
-    if ($null -ne $dockerCommand) {
-        $candidate = if ($dockerCommand.Source) { $dockerCommand.Source } else { $dockerCommand.Path }
-        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
-            return $candidate
-        }
-    }
-
-    $dockerDesktopCli = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
-    if (Test-Path -LiteralPath $dockerDesktopCli) {
-        return $dockerDesktopCli
-    }
-
-    throw 'Docker CLI was not found. Install Docker Desktop with winget install --exact --id Docker.DockerDesktop, then start Docker Desktop and try again.'
-}
-
-function Assert-DockerReady {
-    param([string]$Docker)
-
-    & $Docker info *> $null
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Docker Desktop is not ready. Start Docker Desktop, wait for its engine to start, then run this command again.'
-    }
-}
-
-function Invoke-DockerCompose {
-    param(
-        [string]$Docker,
-        [string[]]$Arguments
-    )
-
-    & $Docker compose @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Docker Compose command failed. Review Docker Desktop status and run docker compose ps for service details.'
-    }
-}
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Wait-ForMySqlHealth {
-    param([string]$Docker)
+    param(
+        [string]$Docker,
+        [pscustomobject]$Context
+    )
 
     $deadline = (Get-Date).AddSeconds(180)
     do {
-        $containerId = (& $Docker compose ps -q mysql).Trim()
-        if ($LASTEXITCODE -eq 0 -and $containerId) {
-            $status = (& $Docker inspect --format '{{.State.Health.Status}}' $containerId).Trim()
+        $containerIds = @(Get-PinnedComposeOutput -Docker $Docker -Context $Context -Arguments @('ps', '-q', 'mysql'))
+        $containerId = $containerIds | Select-Object -First 1
+        if ($containerId) {
+            $status = (& $Docker inspect --format '{{.State.Health.Status}}' $containerId.Trim()).Trim()
             if ($LASTEXITCODE -eq 0 -and $status -eq 'healthy') {
                 return
             }
@@ -56,7 +23,7 @@ function Wait-ForMySqlHealth {
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
 
-    throw 'MySQL did not become healthy within 180 seconds. Run docker compose ps and docker compose logs mysql.'
+    throw 'Isolated test MySQL did not become healthy within 180 seconds.'
 }
 
 function Invoke-NpmCommand {
@@ -72,33 +39,56 @@ function Invoke-NpmCommand {
     }
 }
 
-$repositoryRoot = Split-Path -Parent $PSScriptRoot
-Set-Location -LiteralPath $repositoryRoot
+function Ensure-FrontendDependencies {
+    $vite = Join-Path (Join-Path $context.RepositoryRoot 'node_modules') '.bin\vite.cmd'
+    if (-not (Test-Path -LiteralPath (Join-Path $context.RepositoryRoot 'node_modules')) -or -not (Test-Path -LiteralPath $vite)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $context.RepositoryRoot 'package-lock.json'))) {
+            throw 'package-lock.json is required before npm.cmd ci can prepare frontend tooling.'
+        }
+        Invoke-NpmCommand -Arguments @('ci')
+    }
+}
+
+$context = New-ComposeContext -ProjectName $script:TestComposeProjectName -ComposeFileName 'compose.test.yaml'
+Set-Location -LiteralPath $context.RepositoryRoot
 
 $docker = Get-DockerExecutable
-Assert-DockerReady -Docker $docker
-$testServicesStarted = $false
+$primaryFailure = $null
+$cleanupFailure = $null
+$cleanupRequired = $false
 
 try {
-    Invoke-DockerCompose -Docker $docker -Arguments @('--profile', 'test', 'up', '-d', 'mysql', 'mock-llm')
-    $testServicesStarted = $true
-    Wait-ForMySqlHealth -Docker $docker
+    Assert-DockerReady -Docker $docker
+    $cleanupRequired = $true
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', 'mysql', 'mock-llm')
+    Wait-ForMySqlHealth -Docker $docker -Context $context
 
-    Invoke-DockerCompose -Docker $docker -Arguments @('run', '--rm', '--no-deps', '--entrypoint', 'alembic', 'backend', 'upgrade', 'head')
-    Invoke-DockerCompose -Docker $docker -Arguments @('run', '--rm', '--no-deps', '--entrypoint', 'python', 'backend', '-m', 'pytest')
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('run', '--rm', '--no-deps', '--entrypoint', 'alembic', 'backend', 'upgrade', 'head')
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('run', '--rm', '--no-deps', '--entrypoint', 'python', 'backend', '-m', 'pytest')
+    Ensure-FrontendDependencies
     Invoke-NpmCommand -Arguments @('test')
     Invoke-NpmCommand -Arguments @('run', 'build')
 }
+catch {
+    $primaryFailure = $_
+}
 finally {
-    if ($testServicesStarted) {
+    if ($cleanupRequired) {
         try {
-            & $docker compose --profile test rm -f -s mock-llm *> $null
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning 'The test-only mock-llm container could not be removed automatically. No data volumes were deleted.'
-            }
+            Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('down', '--volumes', '--remove-orphans')
         }
         catch {
-            Write-Warning 'The test-only mock-llm cleanup encountered an error. No data volumes were deleted.'
+            $cleanupFailure = $_
         }
     }
+}
+
+if ($primaryFailure -and $cleanupFailure) {
+    throw ("Test workflow failed: {0}`nIsolated test-project cleanup also failed: {1}" -f $primaryFailure.Exception.Message, $cleanupFailure.Exception.Message)
+}
+if ($primaryFailure) {
+    throw $primaryFailure
+}
+if ($cleanupFailure) {
+    throw ("Isolated test-project cleanup failed: {0}" -f $cleanupFailure.Exception.Message)
 }
