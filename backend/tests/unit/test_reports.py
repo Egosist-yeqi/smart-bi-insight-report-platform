@@ -163,7 +163,8 @@ def test_report_escapes_database_and_narrative_markdown_injection(db_session):
         ReportRequest(report_type="自定义报告", modules=["region", "ranking"]),
         narrative=lambda _section: (
             "第一段\n## 伪造叙述标题\n[伪造叙述链接](https://example.test) <script>bad</script>"
-            "\n\n第二段 | 伪造表格 |"
+            "\n\n第二段 | 伪造表格 |\n> 伪造引用\n~~~伪造围栏\n`伪造代码`\n1. 伪造编号\n"
+            "![伪造图片](https://example.test/image.png)\n---"
         ),
     )
 
@@ -176,8 +177,71 @@ def test_report_escapes_database_and_narrative_markdown_injection(db_session):
     assert "\\#\\# 伪造标题" in result.markdown
     assert "\\[伪造链接\\]\\(https://example\\.test\\)" in result.markdown
     assert "&lt;script&gt;bad&lt;/script&gt;" in result.markdown
+    assert "> 伪造引用" not in result.markdown
+    assert "~~~伪造围栏" not in result.markdown
+    assert "`伪造代码`" not in result.markdown
+    assert "1. 伪造编号" not in result.markdown
+    assert "![伪造图片](https://example.test/image.png)" not in result.markdown
+    assert "---" not in result.markdown
+    assert "&gt; 伪造引用" in result.markdown
+    assert "\\~\\~\\~伪造围栏" in result.markdown
+    assert "\\`伪造代码\\`" in result.markdown
+    assert "1\\. 伪造编号" in result.markdown
+    assert "\\!\\[伪造图片\\]" in result.markdown
+    assert "\\-\\-\\-" in result.markdown
     assert "第一段" in result.markdown
     assert "第二段" in result.markdown
+
+
+def test_report_uses_one_completed_data_month_policy_for_anomaly_and_forecast(
+    db_session,
+):
+    db_session.add_all(
+        [
+            _order("COMPLETE-ONE", date(2025, 1, 15), Decimal("100"), "测试区域", "测试产品"),
+            _order("COMPLETE-TWO", date(2025, 2, 15), Decimal("120"), "测试区域", "测试产品"),
+            _order("COMPLETE-THREE", date(2025, 3, 15), Decimal("140"), "测试区域", "测试产品"),
+        ]
+    )
+    db_session.commit()
+
+    result = generate_report(
+        db_session,
+        ReportRequest(report_type="月报", modules=["anomaly", "forecast"]),
+    )
+
+    assert "完成数据月2025-03，与相邻上月2025-02" in result.sections[0].content
+    assert "完成数据月截至2025-03，使用2025-01至2025-03的月度历史数据" in result.sections[1].content
+    assert "使用3个种子月度销售额" in result.sections[1].content
+
+
+def test_completed_data_month_policy_excludes_an_open_current_month(db_session):
+    from app.analytics.service import forecast_next_month
+    import app.reports.service as report_service
+
+    db_session.add_all(
+        [
+            _order("OPEN-ONE", date(2025, 1, 15), Decimal("100"), "测试区域", "测试产品"),
+            _order("OPEN-TWO", date(2025, 2, 15), Decimal("120"), "测试区域", "测试产品"),
+            _order("OPEN-THREE", date(2025, 3, 15), Decimal("140"), "测试区域", "测试产品"),
+        ]
+    )
+    db_session.commit()
+
+    policy = report_service._completed_data_month_policy(
+        db_session, today=date(2025, 3, 20)
+    )
+
+    assert policy.latest_month == date(2025, 2, 1)
+    assert policy.first_month == date(2025, 1, 1)
+    assert policy.data_as_of == date(2025, 3, 15)
+    forecast = forecast_next_month(db_session, through_month=policy.latest_month)
+    assert [point.month for point in forecast.history] == [
+        date(2025, 1, 1),
+        date(2025, 2, 1),
+    ]
+    assert forecast.prediction is not None
+    assert forecast.prediction.month == date(2025, 3, 1)
 
 
 def _order(

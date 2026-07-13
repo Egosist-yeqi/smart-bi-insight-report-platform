@@ -42,6 +42,7 @@ MARKDOWN_ESCAPES = str.maketrans(
         ".": "\\.",
         "!": "\\!",
         "|": "\\|",
+        "~": "\\~",
     }
 )
 Narrative = Callable[[ReportSection], str | None]
@@ -84,6 +85,14 @@ class _ReportData:
     products: list[_Ranking]
 
 
+@dataclass(frozen=True)
+class _CompletedDataMonthPolicy:
+    first_month: date | None
+    latest_month: date | None
+    data_as_of: date | None
+    note: str
+
+
 class ReportModulesRequiredError(AppError):
     def __init__(self) -> None:
         super().__init__(
@@ -103,14 +112,21 @@ def generate_report(
         raise ReportModulesRequiredError()
 
     report_data = _report_data(session, request.report_type)
+    completed_month_policy = _completed_data_month_policy(session)
     anomalies = (
-        detect_anomalies(session, as_of=_next_month(report_data.period.end))
-        if report_data.period.end
+        detect_anomalies(
+            session, as_of=_next_month(completed_month_policy.latest_month)
+        )
+        if completed_month_policy.latest_month
         else None
     )
-    forecast = forecast_next_month(session)
+    forecast = (
+        forecast_next_month(session, through_month=completed_month_policy.latest_month)
+        if completed_month_policy.latest_month
+        else None
+    )
     sections = [
-        _section(module, report_data, anomalies, forecast)
+        _section(module, report_data, completed_month_policy, anomalies, forecast)
         for module in selected_modules
     ]
     sections, narrative_count = _add_narratives(sections, narrative)
@@ -172,6 +188,51 @@ def _period_for(session: Session, report_type: str) -> _ReportPeriod:
             "最新数据月，自月初统计至数据锚点。",
         )
     return _ReportPeriod(first_order, latest_order, "自定义报告当前支持全量可用数据范围。")
+
+
+def _completed_data_month_policy(
+    session: Session, *, today: date | None = None
+) -> _CompletedDataMonthPolicy:
+    first_order, data_as_of = session.execute(
+        select(func.min(SalesOrder.order_date), func.max(SalesOrder.order_date))
+    ).one()
+    if data_as_of is None:
+        return _CompletedDataMonthPolicy(None, None, None, "当前数据集为空。")
+
+    current_month = _month_start(today or date.today())
+    latest_data_month = _month_start(data_as_of)
+    maximum_completed_month = (
+        _previous_month(current_month)
+        if latest_data_month >= current_month
+        else latest_data_month
+    )
+    first_month, completed_as_of = session.execute(
+        select(func.min(SalesOrder.order_date), func.max(SalesOrder.order_date)).where(
+            SalesOrder.order_date < _next_month(maximum_completed_month)
+        )
+    ).one()
+    if completed_as_of is None:
+        return _CompletedDataMonthPolicy(
+            None,
+            None,
+            data_as_of,
+            f"数据锚点{data_as_of.isoformat()}位于未完成的当前数据月，暂无可用完成数据月。",
+        )
+
+    completed_month = _month_start(completed_as_of)
+    if latest_data_month >= current_month:
+        note = (
+            f"数据锚点{data_as_of.isoformat()}位于当前自然月，"
+            f"已排除未完成的{latest_data_month:%Y-%m}。"
+        )
+    else:
+        note = (
+            f"数据锚点{data_as_of.isoformat()}为历史数据快照，"
+            f"将{completed_month:%Y-%m}视为完成数据月。"
+        )
+    return _CompletedDataMonthPolicy(
+        _month_start(first_month), completed_month, data_as_of, note
+    )
 
 
 def _period_predicates(period: _ReportPeriod) -> list:
@@ -240,13 +301,23 @@ def _previous_month(month: date) -> date:
     return date(month.year - (month.month == 1), (month.month - 2) % 12 + 1, 1)
 
 
-def _section(module, report_data, anomalies, forecast) -> ReportSection:
+def _month_start(value: date) -> date:
+    return date(value.year, value.month, 1)
+
+
+def _section(
+    module,
+    report_data,
+    completed_month_policy,
+    anomalies,
+    forecast,
+) -> ReportSection:
     builders = {
         "overview": lambda: _overview(report_data),
         "region": lambda: _region(report_data),
         "ranking": lambda: _ranking_section(report_data),
-        "anomaly": lambda: _anomaly(anomalies, report_data.period.end),
-        "forecast": lambda: _forecast(forecast, report_data.period.end),
+        "anomaly": lambda: _anomaly(anomalies, completed_month_policy),
+        "forecast": lambda: _forecast(forecast, completed_month_policy),
     }
     return ReportSection(
         id=module,
@@ -286,14 +357,13 @@ def _ranking_section(report_data: _ReportData) -> str:
     )
 
 
-def _anomaly(anomalies, period_end: date | None) -> str:
-    if period_end is None:
-        return "当前数据集为空；无法生成异常参考。"
-    latest_month = date(period_end.year, period_end.month, 1)
-    previous_month = _previous_month(latest_month)
+def _anomaly(anomalies, policy: _CompletedDataMonthPolicy) -> str:
+    if policy.latest_month is None:
+        return f"完成数据月口径：{policy.note}无法生成异常参考。"
+    previous_month = _previous_month(policy.latest_month)
     reference = (
-        f"异常参考：{latest_month:%Y-%m}与{previous_month:%Y-%m}的月度区域销售额对比，"
-        "不等同于报告统计周期。"
+        f"异常参考：完成数据月{policy.latest_month:%Y-%m}，"
+        f"与相邻上月{previous_month:%Y-%m}的月度区域销售额对比。{policy.note}"
     )
     if anomalies is None or not anomalies.items:
         return f"{reference}本参考周期未发现超过阈值的显著异常波动。"
@@ -304,13 +374,15 @@ def _anomaly(anomalies, period_end: date | None) -> str:
     return f"{reference}{details}"
 
 
-def _forecast(forecast, period_end: date | None) -> str:
+def _forecast(forecast, policy: _CompletedDataMonthPolicy) -> str:
+    if policy.latest_month is None or policy.first_month is None:
+        return f"完成数据月口径：{policy.note}历史数据不足，无法生成下月销售额预测。"
     reference = (
-        f"预测参考：使用截至{period_end.isoformat()}的完整可用历史数据。"
-        if period_end
-        else "预测参考：当前数据集为空。"
+        f"预测参考：完成数据月截至{policy.latest_month:%Y-%m}，"
+        f"使用{policy.first_month:%Y-%m}至{policy.latest_month:%Y-%m}的月度历史数据。"
+        f"{policy.note}"
     )
-    if forecast.prediction is None:
+    if forecast is None or forecast.prediction is None:
         return f"{reference}历史数据不足，无法生成下月销售额预测。"
     prediction = forecast.prediction
     return (

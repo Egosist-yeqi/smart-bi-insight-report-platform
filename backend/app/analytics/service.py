@@ -290,8 +290,13 @@ def detect_anomalies(
     )
 
 
-def forecast_next_month(session: Session) -> ForecastResult:
+def forecast_next_month(
+    session: Session, *, through_month: date | None = None
+) -> ForecastResult:
     months = _monthly_aggregates(session, DashboardFilters())
+    if through_month is not None:
+        cutoff = date(through_month.year, through_month.month, 1)
+        months = [month for month in months if month.month <= cutoff]
     history = [
         TrendPoint(month=month.month, amount=month.amount, quantity=month.quantity)
         for month in months
