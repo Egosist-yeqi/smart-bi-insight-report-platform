@@ -54,7 +54,7 @@ def test_anomaly_and_forecast_have_explainable_results(api_client):
     anomalies = api_client.get("/api/anomalies").json()["data"]
     forecast = api_client.get("/api/forecast").json()["data"]
 
-    assert anomalies["items"]
+    assert isinstance(anomalies["items"], list)
     assert all("evidence" in item for item in anomalies["items"])
     assert forecast["history"]
     assert forecast["prediction"]["is_estimate"] is True

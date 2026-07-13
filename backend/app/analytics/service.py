@@ -42,6 +42,10 @@ def _next_month(month: date) -> date:
     return date(month.year + (month.month == 12), month.month % 12 + 1, 1)
 
 
+def _previous_month(month: date) -> date:
+    return date(month.year - (month.month == 1), (month.month - 2) % 12 + 1, 1)
+
+
 def _predicates(filters: DashboardFilters) -> list:
     predicates = []
     if filters.region is not None:
@@ -242,14 +246,18 @@ def _region_amounts(session: Session, month: date) -> dict[str, Decimal]:
     }
 
 
-def detect_anomalies(session: Session) -> AnomalyResult:
-    months = _monthly_aggregates(session, DashboardFilters())
-    if len(months) < 2:
+def detect_anomalies(
+    session: Session, *, as_of: date | None = None
+) -> AnomalyResult:
+    effective_as_of = as_of or date.today()
+    current_month = date(effective_as_of.year, effective_as_of.month, 1)
+    latest_month = _previous_month(current_month)
+    previous_month = _previous_month(latest_month)
+    previous = _region_amounts(session, previous_month)
+    current = _region_amounts(session, latest_month)
+    if not previous or not current:
         return AnomalyResult(items=[])
 
-    previous_month, latest_month = months[-2:]
-    previous = _region_amounts(session, previous_month.month)
-    current = _region_amounts(session, latest_month.month)
     items = []
     for region in sorted(current):
         previous_value = previous.get(region, ZERO)
@@ -267,8 +275,8 @@ def detect_anomalies(session: Session) -> AnomalyResult:
                 delta=delta,
                 level="下降预警" if delta < ZERO else "增长提醒",
                 evidence=(
-                    f"{latest_month.month:%Y-%m}销售额为{current_value}，"
-                    f"较{previous_month.month:%Y-%m}的{previous_value}{direction}"
+                    f"{latest_month:%Y-%m}销售额为{current_value}，"
+                    f"较{previous_month:%Y-%m}的{previous_value}{direction}"
                     f"{abs(delta):.2%}，达到18%阈值。"
                 ),
                 inference=(
