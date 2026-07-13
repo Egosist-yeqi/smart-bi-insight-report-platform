@@ -1,5 +1,3 @@
-from datetime import date
-
 import pytest
 from pydantic import ValidationError
 
@@ -27,7 +25,8 @@ def test_builder_uses_only_placeholders_for_filter_values_and_limit():
     assert "LIMIT :row_limit" in built.sql
     assert built.params["filter_region"] == "华东' OR 1=1 --"
     assert built.params["row_limit"] == 1
-    assert {"time_start", "time_end"}.issubset(built.params)
+    assert "time_start" not in built.params
+    assert "time_end" not in built.params
     assert built.display_sql.startswith("SELECT")
 
 
@@ -45,19 +44,18 @@ def test_builder_generates_valid_whitelisted_select_for_time_trend():
     validate_read_only_sql(built.sql)
 
     assert "CURRENT_DATE" not in built.sql
-    assert "order_date >= :time_start" in built.sql
+    assert "order_date >= DATE_SUB(data_context.data_as_of, INTERVAL 29 DAY)" in built.sql
     assert "GROUP BY week" in built.sql
     assert "ORDER BY week ASC" in built.sql
 
 
-def test_builder_uses_explicit_data_as_of_when_wall_clock_is_beyond_seed_data():
-    built = build_select(
-        QueryIntent(metric="amount", time_range="latest_month"),
-        data_as_of=date(2035, 1, 20),
-    )
+def test_builder_embeds_data_as_of_context_in_the_single_generated_select():
+    built = build_select(QueryIntent(metric="amount", time_range="latest_month"))
 
-    assert built.params["time_start"] == date(2035, 1, 1)
-    assert built.params["time_end"] == date(2035, 2, 1)
+    assert "CROSS JOIN (SELECT MIN(order_date) AS data_start" in built.sql
+    assert "MAX(order_date) AS data_as_of FROM sales_order" in built.sql
+    assert "MIN(data_context.data_start) AS _data_start" in built.sql
+    assert "MIN(data_context.data_as_of) AS _data_as_of" in built.sql
     assert "CURRENT_DATE" not in built.sql
 
 

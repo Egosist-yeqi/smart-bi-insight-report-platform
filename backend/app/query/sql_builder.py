@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
 
 from app.core.errors import AppError
 from app.query.schemas import QueryIntent
@@ -14,7 +13,7 @@ class UnsafeQueryError(AppError):
 @dataclass(frozen=True)
 class BuiltQuery:
     sql: str
-    params: dict[str, str | int | date]
+    params: dict[str, str | int]
     display_sql: str
 
 
@@ -45,6 +44,12 @@ ALLOWED_IDENTIFIERS = {
     "metric_value",
     "month",
     "week",
+    "data_context",
+    "data_start",
+    "data_as_of",
+    "_data_start",
+    "_data_as_of",
+    "_forecast_quantity",
 }
 ALLOWED_SQL_WORDS = {
     "SELECT",
@@ -61,7 +66,16 @@ ALLOWED_SQL_WORDS = {
     "SUM",
     "COUNT",
     "AVG",
+    "MIN",
+    "MAX",
     "DATE_FORMAT",
+    "DATE_ADD",
+    "DATE_SUB",
+    "INTERVAL",
+    "MONTH",
+    "DAY",
+    "CROSS",
+    "JOIN",
 }
 FORBIDDEN_KEYWORDS = {
     "ALTER",
@@ -75,7 +89,6 @@ FORBIDDEN_KEYWORDS = {
     "GRANT",
     "INSERT",
     "INTO",
-    "JOIN",
     "LOAD",
     "LOCK",
     "MERGE",
@@ -92,27 +105,34 @@ FORBIDDEN_KEYWORDS = {
 ALLOWED_STRING_LITERALS = {"%Y-%m-01", "%Y-%m", "%x-W%v"}
 
 
-def build_select(intent: QueryIntent, *, data_as_of: date | None = None) -> BuiltQuery:
+def build_select(intent: QueryIntent) -> BuiltQuery:
     intent = _validated_intent(intent)
     select_dimensions = [DIMENSIONS[dimension][0] for dimension in intent.dimensions]
     group_dimensions = [DIMENSIONS[dimension][1] for dimension in intent.dimensions]
-    select_parts = [*select_dimensions, _metric_expression(intent)]
+    select_parts = [
+        *select_dimensions,
+        _metric_expression(intent),
+        "MIN(data_context.data_start) AS _data_start",
+        "MIN(data_context.data_as_of) AS _data_as_of",
+    ]
+    if _is_forecast(intent):
+        select_parts.append("SUM(quantity) AS _forecast_quantity")
     predicates: list[str] = []
-    params: dict[str, str | int | date] = {}
+    params: dict[str, str | int] = {}
 
     if intent.time_range != "all":
-        time_start, time_end = _time_bounds(intent.time_range, data_as_of or date.today())
-        predicates.extend(
-            ["order_date >= :time_start", "order_date < :time_end"]
-        )
-        params.update({"time_start": time_start, "time_end": time_end})
+        predicates.append(_time_predicate(intent.time_range))
 
     for filter_name, filter_value in intent.filters.items():
         param_name = f"filter_{filter_name}"
         predicates.append(f"{filter_name} = :{param_name}")
         params[param_name] = filter_value
 
-    sql_parts = [f"SELECT {', '.join(select_parts)} FROM sales_order"]
+    sql_parts = [
+        f"SELECT {', '.join(select_parts)} FROM sales_order "
+        "CROSS JOIN (SELECT MIN(order_date) AS data_start, "
+        "MAX(order_date) AS data_as_of FROM sales_order) AS data_context"
+    ]
     if predicates:
         sql_parts.append(f"WHERE {' AND '.join(predicates)}")
     if group_dimensions:
@@ -145,24 +165,32 @@ def _metric_expression(intent: QueryIntent) -> str:
     return f"{function}({METRIC_COLUMNS[intent.metric]}) AS metric_value"
 
 
-def _time_bounds(time_range: str, data_as_of: date) -> tuple[date, date]:
-    latest_month = data_as_of.replace(day=1)
+def _time_predicate(time_range: str) -> str:
     if time_range == "latest_month":
-        return latest_month, _next_month(latest_month)
+        return (
+            "order_date >= DATE_FORMAT(data_context.data_as_of, '%Y-%m-01') "
+            "AND order_date < DATE_ADD(DATE_FORMAT(data_context.data_as_of, '%Y-%m-01'), INTERVAL 1 MONTH)"
+        )
     if time_range == "previous_month":
-        previous_month = _previous_month(latest_month)
-        return previous_month, latest_month
+        return (
+            "order_date >= DATE_SUB(DATE_FORMAT(data_context.data_as_of, '%Y-%m-01'), INTERVAL 1 MONTH) "
+            "AND order_date < DATE_FORMAT(data_context.data_as_of, '%Y-%m-01')"
+        )
     if time_range == "last_30_days":
-        return data_as_of - timedelta(days=29), data_as_of + timedelta(days=1)
+        return (
+            "order_date >= DATE_SUB(data_context.data_as_of, INTERVAL 29 DAY) "
+            "AND order_date < DATE_ADD(data_context.data_as_of, INTERVAL 1 DAY)"
+        )
     raise ValueError(f"Unsupported time range: {time_range}")
 
 
-def _next_month(month: date) -> date:
-    return date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-
-
-def _previous_month(month: date) -> date:
-    return date(month.year - (month.month == 1), (month.month - 2) % 12 + 1, 1)
+def _is_forecast(intent: QueryIntent) -> bool:
+    return (
+        intent.metric == "amount"
+        and intent.dimensions == ["month"]
+        and intent.time_range == "all"
+        and intent.analysis_kind == "trend"
+    )
 
 
 def validate_read_only_sql(sql: str) -> None:
@@ -175,9 +203,18 @@ def validate_read_only_sql(sql: str) -> None:
         raise UnsafeQueryError()
     if re.search(r"\*", normalized):
         raise UnsafeQueryError()
-    if len(re.findall(r"\bSELECT\b", normalized, flags=re.IGNORECASE)) != 1:
+    if len(re.findall(r"\bSELECT\b", normalized, flags=re.IGNORECASE)) != 2:
         raise UnsafeQueryError()
-    if not re.search(r"\bFROM\s+sales_order\b", normalized, flags=re.IGNORECASE):
+    if len(re.findall(r"\bJOIN\b", normalized, flags=re.IGNORECASE)) != 1:
+        raise UnsafeQueryError()
+    if not re.search(r"\bFROM\s+sales_order\s+CROSS\s+JOIN\b", normalized, flags=re.IGNORECASE):
+        raise UnsafeQueryError()
+    if not re.search(
+        r"CROSS\s+JOIN\s*\(SELECT\s+MIN\(order_date\)\s+AS\s+data_start,\s*"
+        r"MAX\(order_date\)\s+AS\s+data_as_of\s+FROM\s+sales_order\)\s+AS\s+data_context",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
         raise UnsafeQueryError()
 
     string_literals = re.findall(r"'([^']*)'", normalized)

@@ -169,3 +169,39 @@ def test_query_service_revalidates_a_mutated_resolver_intent(db_session, monkeyp
     assert history is not None
     assert history.status == "failed"
     assert history.error_code == "INVALID_QUERY_INTENT"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "上月华东区销售额最高的产品是什么？",
+        "下个月销售额可能是多少？",
+    ],
+)
+def test_query_service_sets_timeout_then_executes_exactly_one_business_select(
+    db_session, monkeypatch, question
+):
+    seed_database(db_session)
+    original_execute = db_session.execute
+    statements = []
+
+    def recording_execute(statement, *args, **kwargs):
+        statements.append(str(statement).strip())
+        return original_execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", recording_execute)
+
+    run_query(db_session, question)
+
+    select_statements = [
+        statement for statement in statements if statement.upper().startswith("SELECT")
+    ]
+    timeout_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.upper().startswith("SET SESSION MAX_EXECUTION_TIME")
+    )
+    select_index = statements.index(select_statements[0])
+
+    assert len(select_statements) == 1
+    assert timeout_index < select_index

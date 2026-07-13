@@ -5,13 +5,12 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Callable
 
 from pydantic import ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.analytics.service import forecast_next_month
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.models import QueryHistory, SalesOrder
+from app.db.models import QueryHistory
 from app.query.local_parser import parse_local
 from app.query.schemas import QueryIntent, QueryResult
 from app.query.sql_builder import BuiltQuery, build_select
@@ -67,15 +66,15 @@ def run_query(
     try:
         resolved_intent = resolver(question) if resolver is not None else parse_local(question)
         intent = _validated_intent(resolved_intent)
-        context = _data_context(session)
-        built = build_select(intent, data_as_of=context.data_as_of)
+        built = build_select(intent)
         timeout_ms = get_settings().query_timeout_seconds * 1000
         session.execute(
             text("SET SESSION MAX_EXECUTION_TIME = :timeout_ms"),
             {"timeout_ms": timeout_ms},
         )
-        rows = [_json_safe(dict(row)) for row in session.execute(text(built.sql), built.params).mappings()]
-        rows, answer, summary = _answer(intent, rows, session, context)
+        raw_rows = [dict(row) for row in session.execute(text(built.sql), built.params).mappings()]
+        context, rows = _extract_context(raw_rows)
+        rows, answer, summary = _answer(intent, rows, context)
         chart_type = "line" if _answer_kind(intent) in {"week_over_week", "forecast"} or set(
             intent.dimensions
         ).intersection({"month", "week"}) else "bar"
@@ -96,13 +95,13 @@ def run_query(
             engine=engine,
             safe=True,
             sql=built.display_sql,
-            rows=rows,
+            rows=_json_safe(rows),
             chart_type=chart_type,
             summary=summary,
             data_as_of=context.data_as_of,
             data_period=_data_period(context),
             query_period=_query_period(intent, context),
-            answer=answer,
+            answer=_json_safe(answer),
         )
     except ValidationError as exc:
         _record_failure(
@@ -145,25 +144,33 @@ def _validated_intent(value: QueryIntent | dict[str, Any]) -> QueryIntent:
     return QueryIntent.model_validate(payload)
 
 
-def _data_context(session: Session) -> DataContext:
-    data_start, data_as_of = session.execute(
-        select(func.min(SalesOrder.order_date), func.max(SalesOrder.order_date))
-    ).one()
-    return DataContext(data_start=data_start, data_as_of=data_as_of)
+def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict[str, Any]]]:
+    if not rows:
+        return DataContext(data_start=None, data_as_of=None), []
+    context = DataContext(
+        data_start=rows[0].get("_data_start"),
+        data_as_of=rows[0].get("_data_as_of"),
+    )
+    business_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"_data_start", "_data_as_of"}
+        }
+        for row in rows
+    ]
+    return context, business_rows
 
 
 def _answer(
-    intent: QueryIntent,
-    rows: list[dict[str, Any]],
-    session: Session,
-    context: DataContext,
+    intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
     answer_kind = _answer_kind(intent)
     if answer_kind == "week_over_week":
         answer, comparison_rows = _week_over_week(rows)
         return comparison_rows, answer, _week_summary(answer, context)
     if answer_kind == "forecast":
-        answer, forecast_rows = _forecast_answer(session)
+        answer, forecast_rows = _forecast_answer(rows)
         return forecast_rows, answer, _forecast_summary(answer, context)
     if answer_kind == "promotion_scenario":
         answer, scenario_rows = _scenario_answer(intent, rows)
@@ -222,30 +229,54 @@ def _week_over_week(
             "direction": direction,
             "current": current,
             "previous": previous,
-            "absolute_change": _json_safe(change),
-            "percent_change": _json_safe(percent_change) if percent_change is not None else None,
+            "absolute_change": change,
+            "percent_change": percent_change,
         },
         chronological_rows,
     )
 
 
-def _forecast_answer(session: Session) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    forecast = forecast_next_month(session)
-    rows = [
-        {**_json_safe(point.model_dump()), "is_estimate": False}
-        for point in forecast.history
+def _forecast_answer(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    history = [
+        {
+            "month": date.fromisoformat(f"{row['month']}-01"),
+            "amount": Decimal(str(row["metric_value"])),
+            "quantity": int(row.get("_forecast_quantity") or 0),
+            "is_estimate": False,
+        }
+        for row in rows
     ]
-    prediction = _json_safe(forecast.prediction.model_dump()) if forecast.prediction else None
-    if prediction is not None:
-        rows.append(
-            {
-                "month": prediction["month"],
-                "amount": prediction["amount"],
-                "quantity": None,
-                "is_estimate": True,
-            }
-        )
-    return {"kind": "forecast", "prediction": prediction}, rows
+    if not history:
+        return {"kind": "forecast", "prediction": None}, history
+
+    sample_count = len(history)
+    count = Decimal(sample_count)
+    x_sum = sum((Decimal(index) for index in range(sample_count)), Decimal("0"))
+    y_sum = sum((point["amount"] for point in history), Decimal("0"))
+    xy_sum = sum(
+        (Decimal(index) * point["amount"] for index, point in enumerate(history)),
+        Decimal("0"),
+    )
+    x_squared_sum = sum(
+        (Decimal(index * index) for index in range(sample_count)), Decimal("0")
+    )
+    denominator = x_squared_sum - (x_sum * x_sum / count)
+    slope = (xy_sum - (x_sum * y_sum / count)) / denominator if denominator else Decimal("0")
+    intercept = y_sum / count - slope * x_sum / count
+    predicted_amount = (intercept + slope * count).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    prediction = {
+        "month": _next_month(history[-1]["month"]),
+        "amount": predicted_amount,
+        "is_estimate": True,
+        "basis": (
+            f"使用{sample_count}个种子月度销售额进行普通最小二乘（OLS）线性回归；"
+            f"斜率为{slope.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}元/月。"
+        ),
+    }
+    chart_rows = [*history, {**prediction, "quantity": None}]
+    return {"kind": "forecast", "prediction": prediction}, chart_rows
 
 
 def _scenario_answer(
@@ -260,19 +291,19 @@ def _scenario_answer(
     )
     region = intent.filters["region"]
     assumptions = {
-        "promotion_increase": _json_safe(PROMOTION_INCREASE),
-        "promotion_elasticity": _json_safe(PROMOTION_ELASTICITY),
-        "price_drop": _json_safe(PRICE_DROP),
-        "price_elasticity": _json_safe(PRICE_ELASTICITY),
+        "promotion_increase": PROMOTION_INCREASE,
+        "promotion_elasticity": PROMOTION_ELASTICITY,
+        "price_drop": PRICE_DROP,
+        "price_elasticity": PRICE_ELASTICITY,
     }
     answer = {
         "kind": "promotion_scenario",
         "is_estimate": True,
         "region": region,
         "assumptions": assumptions,
-        "base_amount": _json_safe(base_amount),
-        "net_change": _json_safe(net_change),
-        "simulated_amount": _json_safe(simulated_amount),
+        "base_amount": base_amount,
+        "net_change": net_change,
+        "simulated_amount": simulated_amount,
     }
     return answer, [answer]
 
@@ -304,7 +335,7 @@ def _week_summary(answer: dict[str, Any], context: DataContext) -> str:
     previous = answer["previous"]
     labels = {"decrease": "下降", "increase": "增长", "unchanged": "持平"}
     direction = labels[answer["direction"]]
-    percentage = abs(answer["percent_change"] or 0) * 100
+    percentage = abs(answer["percent_change"] or Decimal("0")) * 100
     return (
         f"{prefix}最近可用周（{current['week']}）订单量为{current['metric_value']}，"
         f"较上一可用周（{previous['week']}）{direction}{percentage:.2f}%。"
@@ -348,7 +379,11 @@ def _query_period(intent: QueryIntent, context: DataContext) -> str:
     if intent.time_range == "latest_month":
         return f"{data_as_of:%Y-%m}"
     if intent.time_range == "previous_month":
-        previous = date(data_as_of.year - (data_as_of.month == 1), (data_as_of.month - 2) % 12 + 1, 1)
+        previous = date(
+            data_as_of.year - (data_as_of.month == 1),
+            (data_as_of.month - 2) % 12 + 1,
+            1,
+        )
         return f"{previous:%Y-%m}"
     return f"{(data_as_of - date.resolution * 29).isoformat()}至{data_as_of.isoformat()}"
 
@@ -357,6 +392,10 @@ def _summary_prefix(context: DataContext) -> str:
     if context.data_as_of is None:
         return "当前数据集为空；"
     return f"数据截至{context.data_as_of.isoformat()}（{_data_period(context)}）；"
+
+
+def _next_month(month: date) -> date:
+    return date(month.year + (month.month == 12), month.month % 12 + 1, 1)
 
 
 def _record_failure(
