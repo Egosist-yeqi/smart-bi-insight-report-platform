@@ -112,17 +112,22 @@ function Assert-ExpectedProjectVolume {
         [pscustomobject]$Context
     )
 
-    $existingVolume = (& $Docker volume ls --filter "name=^$([regex]::Escape($VolumeName))$" --quiet 2>$null).Trim()
+    $volumeNames = @(& $Docker volume ls --filter "name=^$([regex]::Escape($VolumeName))$" --quiet 2>$null)
     if ($LASTEXITCODE -ne 0) {
         throw 'Docker could not verify the fixed normal-project volume. Refusing to continue reset.'
     }
-    if (-not $existingVolume) {
+    $existingVolume = $volumeNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace([string]$existingVolume)) {
         return $false
     }
 
-    $labelsJson = (& $Docker volume inspect --format '{{json .Labels}}' $VolumeName 2>$null).Trim()
+    $labelOutput = @(& $Docker volume inspect --format '{{json .Labels}}' $VolumeName 2>$null)
     if ($LASTEXITCODE -ne 0) {
         throw 'Docker could not inspect the fixed normal-project volume labels. Refusing to continue reset.'
+    }
+    $labelsJson = $labelOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace([string]$labelsJson)) {
+        throw 'Refusing reset because the expected Docker volume labels could not be verified.'
     }
 
     try {
