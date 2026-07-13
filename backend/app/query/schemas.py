@@ -1,6 +1,8 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from datetime import date
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MetricCode = Literal["amount", "quantity", "order_count", "avg_order_value", "profit"]
 DimensionCode = Literal[
@@ -14,10 +16,17 @@ DimensionCode = Literal[
 ]
 
 FILTER_CODES = {"region", "province", "product_name", "category", "customer_type"}
+COMPATIBLE_AGGREGATIONS = {
+    "amount": {"sum", "count", "average"},
+    "quantity": {"sum", "count", "average"},
+    "profit": {"sum", "count", "average"},
+    "order_count": {"count"},
+    "avg_order_value": {"average"},
+}
 
 
 class QueryIntent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True)
 
     metric: MetricCode
     aggregation: Literal["sum", "count", "average"] = "sum"
@@ -40,9 +49,17 @@ class QueryIntent(BaseModel):
             raise ValueError("Filter values must be non-empty strings")
         return filters
 
+    @model_validator(mode="after")
+    def validate_metric_aggregation(self) -> "QueryIntent":
+        if self.aggregation not in COMPATIBLE_AGGREGATIONS[self.metric]:
+            raise ValueError(
+                f"Aggregation {self.aggregation!r} is incompatible with metric {self.metric!r}"
+            )
+        return self
+
 
 class QueryRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     question: str = Field(min_length=1, max_length=500)
 
@@ -63,3 +80,7 @@ class QueryResult(BaseModel):
     rows: list[dict[str, Any]]
     chart_type: Literal["bar", "line"]
     summary: str
+    data_as_of: date | None
+    data_period: str
+    query_period: str
+    answer: dict[str, Any] | None = None

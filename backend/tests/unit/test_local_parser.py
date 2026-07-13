@@ -96,3 +96,30 @@ def test_query_intent_rejects_unknown_filter_and_limit_above_cap():
 
     with pytest.raises(ValidationError):
         QueryIntent(metric="amount", limit=101)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"metric": "amount", "limit": "20"},
+        {"metric": "amount", "filters": {"region": 1}},
+        {"metric": "amount", "unexpected": "value"},
+    ],
+)
+def test_query_intent_rejects_coerced_or_unknown_ai_payload_values(payload):
+    with pytest.raises(ValidationError):
+        QueryIntent.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("metric", "aggregation"),
+    [
+        ("order_count", "sum"),
+        ("order_count", "average"),
+        ("avg_order_value", "sum"),
+        ("avg_order_value", "count"),
+    ],
+)
+def test_query_intent_rejects_incompatible_metric_aggregations(metric, aggregation):
+    with pytest.raises(ValidationError, match="incompatible"):
+        QueryIntent(metric=metric, aggregation=aggregation)

@@ -1,14 +1,17 @@
 import time
+from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Callable
 
-from sqlalchemy import text
+from pydantic import ValidationError
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.analytics.service import forecast_next_month
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.models import QueryHistory
+from app.db.models import QueryHistory, SalesOrder
 from app.query.local_parser import parse_local
 from app.query.schemas import QueryIntent, QueryResult
 from app.query.sql_builder import BuiltQuery, build_select
@@ -30,6 +33,25 @@ DIMENSION_LABELS = {
     "month": "月份",
     "week": "周",
 }
+PROMOTION_INCREASE = Decimal("0.10")
+PROMOTION_ELASTICITY = Decimal("0.42")
+PRICE_DROP = Decimal("0.05")
+PRICE_ELASTICITY = Decimal("0.68")
+
+
+class InvalidQueryIntentError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="INVALID_QUERY_INTENT",
+            message="查询意图无效，无法执行查询。",
+            status_code=400,
+        )
+
+
+@dataclass(frozen=True)
+class DataContext:
+    data_start: date | None
+    data_as_of: date | None
 
 
 def run_query(
@@ -44,14 +66,19 @@ def run_query(
 
     try:
         resolved_intent = resolver(question) if resolver is not None else parse_local(question)
-        intent = QueryIntent.model_validate(resolved_intent)
-        built = build_select(intent)
+        intent = _validated_intent(resolved_intent)
+        context = _data_context(session)
+        built = build_select(intent, data_as_of=context.data_as_of)
         timeout_ms = get_settings().query_timeout_seconds * 1000
-        session.execute(text("SET SESSION MAX_EXECUTION_TIME = :timeout_ms"), {"timeout_ms": timeout_ms})
-        result = session.execute(text(built.sql), built.params)
-        rows = [_json_safe(dict(row)) for row in result.mappings()]
-        chart_type = "line" if set(intent.dimensions).intersection({"month", "week"}) else "bar"
-        summary = _summary(intent, rows)
+        session.execute(
+            text("SET SESSION MAX_EXECUTION_TIME = :timeout_ms"),
+            {"timeout_ms": timeout_ms},
+        )
+        rows = [_json_safe(dict(row)) for row in session.execute(text(built.sql), built.params).mappings()]
+        rows, answer, summary = _answer(intent, rows, session, context)
+        chart_type = "line" if _answer_kind(intent) in {"week_over_week", "forecast"} or set(
+            intent.dimensions
+        ).intersection({"month", "week"}) else "bar"
         _record_history(
             session,
             question=question,
@@ -72,7 +99,22 @@ def run_query(
             rows=rows,
             chart_type=chart_type,
             summary=summary,
+            data_as_of=context.data_as_of,
+            data_period=_data_period(context),
+            query_period=_query_period(intent, context),
+            answer=answer,
         )
+    except ValidationError as exc:
+        _record_failure(
+            session,
+            question=question,
+            engine=engine,
+            intent=intent,
+            built=built,
+            error_code="INVALID_QUERY_INTENT",
+            started_at=started_at,
+        )
+        raise InvalidQueryIntentError() from exc
     except Exception as exc:
         if session.in_transaction():
             session.rollback()
@@ -96,6 +138,251 @@ def run_query(
             message="查询执行失败，请稍后重试。",
             status_code=500,
         ) from exc
+
+
+def _validated_intent(value: QueryIntent | dict[str, Any]) -> QueryIntent:
+    payload = value.model_dump() if isinstance(value, QueryIntent) else value
+    return QueryIntent.model_validate(payload)
+
+
+def _data_context(session: Session) -> DataContext:
+    data_start, data_as_of = session.execute(
+        select(func.min(SalesOrder.order_date), func.max(SalesOrder.order_date))
+    ).one()
+    return DataContext(data_start=data_start, data_as_of=data_as_of)
+
+
+def _answer(
+    intent: QueryIntent,
+    rows: list[dict[str, Any]],
+    session: Session,
+    context: DataContext,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
+    answer_kind = _answer_kind(intent)
+    if answer_kind == "week_over_week":
+        answer, comparison_rows = _week_over_week(rows)
+        return comparison_rows, answer, _week_summary(answer, context)
+    if answer_kind == "forecast":
+        answer, forecast_rows = _forecast_answer(session)
+        return forecast_rows, answer, _forecast_summary(answer, context)
+    if answer_kind == "promotion_scenario":
+        answer, scenario_rows = _scenario_answer(intent, rows)
+        return scenario_rows, answer, _scenario_summary(answer, context)
+    return rows, None, _summary(intent, rows, context)
+
+
+def _answer_kind(intent: QueryIntent) -> str | None:
+    if (
+        intent.metric == "order_count"
+        and intent.dimensions == ["week"]
+        and intent.analysis_kind == "comparison"
+    ):
+        return "week_over_week"
+    if (
+        intent.metric == "amount"
+        and intent.dimensions == ["month"]
+        and intent.time_range == "all"
+        and intent.analysis_kind == "trend"
+    ):
+        return "forecast"
+    if (
+        intent.metric == "amount"
+        and intent.dimensions == ["region"]
+        and intent.analysis_kind == "detail"
+        and "region" in intent.filters
+    ):
+        return "promotion_scenario"
+    return None
+
+
+def _week_over_week(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    chronological_rows = list(reversed(rows))
+    if len(chronological_rows) < 2:
+        return (
+            {
+                "kind": "week_over_week",
+                "direction": "unavailable",
+                "current": chronological_rows[-1] if chronological_rows else None,
+                "previous": None,
+                "percent_change": None,
+            },
+            chronological_rows,
+        )
+    previous, current = chronological_rows[-2:]
+    previous_value = Decimal(str(previous["metric_value"]))
+    current_value = Decimal(str(current["metric_value"]))
+    change = current_value - previous_value
+    percent_change = change / previous_value if previous_value else None
+    direction = "decrease" if change < 0 else "increase" if change > 0 else "unchanged"
+    return (
+        {
+            "kind": "week_over_week",
+            "direction": direction,
+            "current": current,
+            "previous": previous,
+            "absolute_change": _json_safe(change),
+            "percent_change": _json_safe(percent_change) if percent_change is not None else None,
+        },
+        chronological_rows,
+    )
+
+
+def _forecast_answer(session: Session) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    forecast = forecast_next_month(session)
+    rows = [
+        {**_json_safe(point.model_dump()), "is_estimate": False}
+        for point in forecast.history
+    ]
+    prediction = _json_safe(forecast.prediction.model_dump()) if forecast.prediction else None
+    if prediction is not None:
+        rows.append(
+            {
+                "month": prediction["month"],
+                "amount": prediction["amount"],
+                "quantity": None,
+                "is_estimate": True,
+            }
+        )
+    return {"kind": "forecast", "prediction": prediction}, rows
+
+
+def _scenario_answer(
+    intent: QueryIntent, rows: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    base_amount = Decimal(str(rows[0]["metric_value"])) if rows else Decimal("0")
+    promotion_effect = PROMOTION_INCREASE * PROMOTION_ELASTICITY
+    price_effect = -(PRICE_DROP * PRICE_ELASTICITY)
+    net_change = promotion_effect + price_effect
+    simulated_amount = (base_amount * (Decimal("1") + net_change)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    region = intent.filters["region"]
+    assumptions = {
+        "promotion_increase": _json_safe(PROMOTION_INCREASE),
+        "promotion_elasticity": _json_safe(PROMOTION_ELASTICITY),
+        "price_drop": _json_safe(PRICE_DROP),
+        "price_elasticity": _json_safe(PRICE_ELASTICITY),
+    }
+    answer = {
+        "kind": "promotion_scenario",
+        "is_estimate": True,
+        "region": region,
+        "assumptions": assumptions,
+        "base_amount": _json_safe(base_amount),
+        "net_change": _json_safe(net_change),
+        "simulated_amount": _json_safe(simulated_amount),
+    }
+    return answer, [answer]
+
+
+def _summary(intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext) -> str:
+    metric_label = METRIC_LABELS[intent.metric]
+    prefix = _summary_prefix(context)
+    if not rows:
+        return f"{prefix}未查询到符合条件的{metric_label}数据。"
+    dimension_labels = "、".join(DIMENSION_LABELS[item] for item in intent.dimensions)
+    if intent.analysis_kind == "ranking" and intent.dimensions:
+        first_dimension = intent.dimensions[0]
+        leading_value = rows[0].get(first_dimension)
+        leading_metric = rows[0].get("metric_value")
+        return (
+            f"{prefix}已返回{len(rows)}条{metric_label}数据，排名第一的"
+            f"{DIMENSION_LABELS[first_dimension]}为{leading_value}，{metric_label}为{leading_metric}。"
+        )
+    if dimension_labels:
+        return f"{prefix}已返回{len(rows)}条{metric_label}数据，按{dimension_labels}汇总。"
+    return f"{prefix}已返回{len(rows)}条{metric_label}数据。"
+
+
+def _week_summary(answer: dict[str, Any], context: DataContext) -> str:
+    prefix = _summary_prefix(context)
+    if answer["direction"] == "unavailable":
+        return f"{prefix}最近可用周数据不足，无法完成周环比判断。"
+    current = answer["current"]
+    previous = answer["previous"]
+    labels = {"decrease": "下降", "increase": "增长", "unchanged": "持平"}
+    direction = labels[answer["direction"]]
+    percentage = abs(answer["percent_change"] or 0) * 100
+    return (
+        f"{prefix}最近可用周（{current['week']}）订单量为{current['metric_value']}，"
+        f"较上一可用周（{previous['week']}）{direction}{percentage:.2f}%。"
+    )
+
+
+def _forecast_summary(answer: dict[str, Any], context: DataContext) -> str:
+    prefix = _summary_prefix(context)
+    prediction = answer["prediction"]
+    if prediction is None:
+        return f"{prefix}历史数据不足，无法生成下月销售额预测。"
+    return (
+        f"{prefix}预计{prediction['month']}销售额约为{prediction['amount']}。"
+        f"{prediction['basis']}预测仅供经营分析参考。"
+    )
+
+
+def _scenario_summary(answer: dict[str, Any], context: DataContext) -> str:
+    assumptions = answer["assumptions"]
+    return (
+        f"{_summary_prefix(context)}这是演示情景估算，并非实际观测结果："
+        f"假设{answer['region']}促销投入增加{assumptions['promotion_increase']:.0%}"
+        f"（弹性{assumptions['promotion_elasticity']:.2f}），价格下降{assumptions['price_drop']:.0%}"
+        f"（弹性{assumptions['price_elasticity']:.2f}），净影响为{answer['net_change']:.2%}，"
+        f"模拟销售额为{answer['simulated_amount']}。"
+    )
+
+
+def _data_period(context: DataContext) -> str:
+    if context.data_start is None or context.data_as_of is None:
+        return "暂无可用数据"
+    return f"数据范围{context.data_start.isoformat()}至{context.data_as_of.isoformat()}"
+
+
+def _query_period(intent: QueryIntent, context: DataContext) -> str:
+    if context.data_as_of is None:
+        return "暂无可用数据"
+    data_as_of = context.data_as_of
+    if intent.time_range == "all":
+        return _data_period(context)
+    if intent.time_range == "latest_month":
+        return f"{data_as_of:%Y-%m}"
+    if intent.time_range == "previous_month":
+        previous = date(data_as_of.year - (data_as_of.month == 1), (data_as_of.month - 2) % 12 + 1, 1)
+        return f"{previous:%Y-%m}"
+    return f"{(data_as_of - date.resolution * 29).isoformat()}至{data_as_of.isoformat()}"
+
+
+def _summary_prefix(context: DataContext) -> str:
+    if context.data_as_of is None:
+        return "当前数据集为空；"
+    return f"数据截至{context.data_as_of.isoformat()}（{_data_period(context)}）；"
+
+
+def _record_failure(
+    session: Session,
+    *,
+    question: str,
+    engine: str,
+    intent: QueryIntent | None,
+    built: BuiltQuery | None,
+    error_code: str,
+    started_at: float,
+) -> None:
+    if session.in_transaction():
+        session.rollback()
+    _record_history(
+        session,
+        question=question,
+        engine=engine,
+        intent=intent,
+        built=built,
+        summary=None,
+        status="failed",
+        error_code=error_code,
+        duration_ms=_duration_ms(started_at),
+    )
+    session.commit()
 
 
 def _record_history(
@@ -135,21 +422,6 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     return value
-
-
-def _summary(intent: QueryIntent, rows: list[dict[str, Any]]) -> str:
-    metric_label = METRIC_LABELS[intent.metric]
-    if not rows:
-        return f"未查询到符合条件的{metric_label}数据。"
-    dimension_labels = "、".join(DIMENSION_LABELS[item] for item in intent.dimensions)
-    if intent.analysis_kind == "ranking" and intent.dimensions:
-        first_dimension = intent.dimensions[0]
-        leading_value = rows[0].get(first_dimension)
-        leading_metric = rows[0].get("metric_value")
-        return f"已返回{len(rows)}条{metric_label}数据，排名第一的{DIMENSION_LABELS[first_dimension]}为{leading_value}，{metric_label}为{leading_metric}。"
-    if dimension_labels:
-        return f"已返回{len(rows)}条{metric_label}数据，按{dimension_labels}汇总。"
-    return f"已返回{len(rows)}条{metric_label}数据。"
 
 
 def _duration_ms(started_at: float) -> int:
