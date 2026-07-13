@@ -52,10 +52,12 @@ def test_builder_generates_valid_whitelisted_select_for_time_trend():
 def test_builder_embeds_data_as_of_context_in_the_single_generated_select():
     built = build_select(QueryIntent(metric="amount", time_range="latest_month"))
 
-    assert "CROSS JOIN (SELECT MIN(order_date) AS data_start" in built.sql
-    assert "MAX(order_date) AS data_as_of FROM sales_order" in built.sql
+    assert "FROM (SELECT MIN(order_date) AS data_start" in built.sql
+    assert "MAX(order_date) AS data_as_of FROM sales_order) AS data_context" in built.sql
+    assert "LEFT JOIN sales_order ON" in built.sql
     assert "MIN(data_context.data_start) AS _data_start" in built.sql
     assert "MIN(data_context.data_as_of) AS _data_as_of" in built.sql
+    assert "COUNT(sales_order.id) AS _match_count" in built.sql
     assert "CURRENT_DATE" not in built.sql
 
 

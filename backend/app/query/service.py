@@ -155,9 +155,10 @@ def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict
         {
             key: value
             for key, value in row.items()
-            if key not in {"_data_start", "_data_as_of"}
+            if key not in {"_data_start", "_data_as_of", "_match_count"}
         }
         for row in rows
+        if int(row.get("_match_count") or 0) > 0
     ]
     return context, business_rows
 
@@ -166,6 +167,8 @@ def _answer(
     intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
     answer_kind = _answer_kind(intent)
+    if not rows:
+        return [], _empty_answer(answer_kind, intent), _summary(intent, rows, context)
     if answer_kind == "week_over_week":
         answer, comparison_rows = _week_over_week(rows)
         return comparison_rows, answer, _week_summary(answer, context)
@@ -176,6 +179,26 @@ def _answer(
         answer, scenario_rows = _scenario_answer(intent, rows)
         return scenario_rows, answer, _scenario_summary(answer, context)
     return rows, None, _summary(intent, rows, context)
+
+
+def _empty_answer(answer_kind: str | None, intent: QueryIntent) -> dict[str, Any] | None:
+    if answer_kind == "week_over_week":
+        return {
+            "kind": "week_over_week",
+            "direction": "unavailable",
+            "current": None,
+            "previous": None,
+            "percent_change": None,
+        }
+    if answer_kind == "forecast":
+        return {"kind": "forecast", "prediction": None}
+    if answer_kind == "promotion_scenario":
+        return {
+            "kind": "promotion_scenario",
+            "region": intent.filters["region"],
+            "unavailable": True,
+        }
+    return None
 
 
 def _answer_kind(intent: QueryIntent) -> str | None:
@@ -312,6 +335,8 @@ def _summary(intent: QueryIntent, rows: list[dict[str, Any]], context: DataConte
     metric_label = METRIC_LABELS[intent.metric]
     prefix = _summary_prefix(context)
     if not rows:
+        if context.data_as_of is None:
+            return f"当前数据集为空；暂无可用订单数据，无法查询{metric_label}。"
         return f"{prefix}未查询到符合条件的{metric_label}数据。"
     dimension_labels = "、".join(DIMENSION_LABELS[item] for item in intent.dimensions)
     if intent.analysis_kind == "ranking" and intent.dimensions:

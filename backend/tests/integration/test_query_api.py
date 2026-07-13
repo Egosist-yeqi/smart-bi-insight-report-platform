@@ -205,3 +205,62 @@ def test_query_service_sets_timeout_then_executes_exactly_one_business_select(
 
     assert len(select_statements) == 1
     assert timeout_index < select_index
+
+
+def test_query_service_preserves_context_for_a_dimensioned_zero_match(db_session, monkeypatch):
+    seed_database(db_session)
+    expected_start = db_session.scalar(select(func.min(SalesOrder.order_date)))
+    expected_as_of = db_session.scalar(select(func.max(SalesOrder.order_date)))
+    original_execute = db_session.execute
+    statements = []
+
+    def recording_execute(statement, *args, **kwargs):
+        statements.append(str(statement).strip())
+        return original_execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", recording_execute)
+
+    result = run_query(
+        db_session,
+        "查询不存在区域",
+        resolver=lambda _question: QueryIntent(
+            metric="amount",
+            dimensions=["region"],
+            filters={"region": "不存在区域"},
+            time_range="latest_month",
+            analysis_kind="ranking",
+        ),
+    )
+
+    select_statements = [
+        statement for statement in statements if statement.upper().startswith("SELECT")
+    ]
+    timeout_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.upper().startswith("SET SESSION MAX_EXECUTION_TIME")
+    )
+
+    assert len(select_statements) == 1
+    assert timeout_index < statements.index(select_statements[0])
+    assert result.data_as_of == expected_as_of
+    assert result.data_period == f"数据范围{expected_start.isoformat()}至{expected_as_of.isoformat()}"
+    assert result.query_period == f"{expected_as_of:%Y-%m}"
+    assert result.rows == []
+    assert "未查询到符合条件" in result.summary
+
+
+def test_query_service_reports_a_truly_empty_dataset_for_dimensionless_aggregate(db_session):
+    result = run_query(
+        db_session,
+        "查询空数据集",
+        resolver=lambda _question: QueryIntent(metric="amount", time_range="all"),
+    )
+
+    assert result.data_as_of is None
+    assert result.data_period == "暂无可用数据"
+    assert result.query_period == "暂无可用数据"
+    assert result.rows == []
+    assert result.answer is None
+    assert "当前数据集为空" in result.summary
+    assert "未查询到符合条件" not in result.summary

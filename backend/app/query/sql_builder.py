@@ -49,6 +49,7 @@ ALLOWED_IDENTIFIERS = {
     "data_as_of",
     "_data_start",
     "_data_as_of",
+    "_match_count",
     "_forecast_quantity",
 }
 ALLOWED_SQL_WORDS = {
@@ -74,8 +75,9 @@ ALLOWED_SQL_WORDS = {
     "INTERVAL",
     "MONTH",
     "DAY",
-    "CROSS",
+    "LEFT",
     "JOIN",
+    "ON",
 }
 FORBIDDEN_KEYWORDS = {
     "ALTER",
@@ -114,6 +116,7 @@ def build_select(intent: QueryIntent) -> BuiltQuery:
         _metric_expression(intent),
         "MIN(data_context.data_start) AS _data_start",
         "MIN(data_context.data_as_of) AS _data_as_of",
+        "COUNT(sales_order.id) AS _match_count",
     ]
     if _is_forecast(intent):
         select_parts.append("SUM(quantity) AS _forecast_quantity")
@@ -128,13 +131,13 @@ def build_select(intent: QueryIntent) -> BuiltQuery:
         predicates.append(f"{filter_name} = :{param_name}")
         params[param_name] = filter_value
 
+    join_condition = " AND ".join(predicates) if predicates else "1 = 1"
     sql_parts = [
-        f"SELECT {', '.join(select_parts)} FROM sales_order "
-        "CROSS JOIN (SELECT MIN(order_date) AS data_start, "
-        "MAX(order_date) AS data_as_of FROM sales_order) AS data_context"
+        f"SELECT {', '.join(select_parts)} FROM "
+        "(SELECT MIN(order_date) AS data_start, MAX(order_date) AS data_as_of "
+        "FROM sales_order) AS data_context "
+        f"LEFT JOIN sales_order ON {join_condition}"
     ]
-    if predicates:
-        sql_parts.append(f"WHERE {' AND '.join(predicates)}")
     if group_dimensions:
         sql_parts.append(f"GROUP BY {', '.join(group_dimensions)}")
 
@@ -207,11 +210,10 @@ def validate_read_only_sql(sql: str) -> None:
         raise UnsafeQueryError()
     if len(re.findall(r"\bJOIN\b", normalized, flags=re.IGNORECASE)) != 1:
         raise UnsafeQueryError()
-    if not re.search(r"\bFROM\s+sales_order\s+CROSS\s+JOIN\b", normalized, flags=re.IGNORECASE):
-        raise UnsafeQueryError()
     if not re.search(
-        r"CROSS\s+JOIN\s*\(SELECT\s+MIN\(order_date\)\s+AS\s+data_start,\s*"
-        r"MAX\(order_date\)\s+AS\s+data_as_of\s+FROM\s+sales_order\)\s+AS\s+data_context",
+        r"\bFROM\s+\(SELECT\s+MIN\(order_date\)\s+AS\s+data_start,\s*"
+        r"MAX\(order_date\)\s+AS\s+data_as_of\s+FROM\s+sales_order\)\s+AS\s+"
+        r"data_context\s+LEFT\s+JOIN\s+sales_order\s+ON\b",
         normalized,
         flags=re.IGNORECASE,
     ):
