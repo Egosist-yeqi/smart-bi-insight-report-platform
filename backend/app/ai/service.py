@@ -46,6 +46,15 @@ class AIProviderTestInputError(AppError):
         )
 
 
+class AIConfigurationError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="AI_CONFIGURATION_INVALID",
+            message="AI 配置无效，请重新保存配置。",
+            status_code=400,
+        )
+
+
 def get_provider_view(session: Session) -> AIProviderView:
     provider = session.get(AIProviderConfig, 1)
     if provider is None:
@@ -67,6 +76,7 @@ def save_provider(session: Session, payload: AIProviderInput) -> AIProviderView:
             encrypted_api_key=encrypt_secret(supplied_key, get_settings().app_encryption_key),
             api_key_hint=mask_secret(supplied_key),
             enabled=payload.enabled,
+            allow_private_network=payload.allow_private_network,
             timeout_seconds=payload.timeout_seconds,
         )
         session.add(provider)
@@ -75,6 +85,7 @@ def save_provider(session: Session, payload: AIProviderInput) -> AIProviderView:
         provider.base_url = payload.base_url
         provider.model = payload.model
         provider.enabled = payload.enabled
+        provider.allow_private_network = payload.allow_private_network
         provider.timeout_seconds = payload.timeout_seconds
         if supplied_key:
             provider.encrypted_api_key = encrypt_secret(
@@ -123,7 +134,10 @@ def get_report_narrative(session: Session) -> Callable[[ReportSection], str | No
     provider = _enabled_provider(session)
     if provider is None:
         return None
-    client = _client_for_provider(provider)
+    try:
+        client = _client_for_provider(provider)
+    except AppError:
+        return None
 
     def narrative(section: ReportSection) -> str:
         return _run(client.generate_narrative(section.title, section.content))
@@ -158,6 +172,7 @@ def _client_for_test(
             timeout_seconds=(
                 payload.timeout_seconds or get_settings().ai_default_timeout_seconds
             ),
+            allow_private_network=bool(payload.allow_private_network),
         ),
         payload.provider_name,
         payload.model,
@@ -165,12 +180,16 @@ def _client_for_test(
 
 
 def _client_for_provider(provider: AIProviderConfig) -> OpenAICompatibleClient:
-    api_key = decrypt_secret(provider.encrypted_api_key, get_settings().app_encryption_key)
+    try:
+        api_key = decrypt_secret(provider.encrypted_api_key, get_settings().app_encryption_key)
+    except AppError:
+        raise AIConfigurationError() from None
     return OpenAICompatibleClient(
         base_url=provider.base_url,
         api_key=api_key,
         model=provider.model,
         timeout_seconds=provider.timeout_seconds,
+        allow_private_network=provider.allow_private_network,
     )
 
 
@@ -183,6 +202,7 @@ def _provider_view(provider: AIProviderConfig) -> AIProviderView:
         model=provider.model,
         timeout_seconds=provider.timeout_seconds,
         enabled=provider.enabled,
+        allow_private_network=provider.allow_private_network,
         api_key_hint=provider.api_key_hint,
     )
 

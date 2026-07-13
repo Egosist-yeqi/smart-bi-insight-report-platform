@@ -57,12 +57,12 @@ def run_query(
     session: Session,
     question: str,
     resolver: Callable[[str], QueryIntent | dict[str, Any]] | None = None,
+    fallback_notice: str | None = None,
 ) -> QueryResult:
     started_at = time.perf_counter()
     engine = "ai" if resolver is not None else "local"
     intent: QueryIntent | None = None
     built: BuiltQuery | None = None
-    fallback_notice: str | None = None
 
     try:
         try:

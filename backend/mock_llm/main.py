@@ -20,6 +20,17 @@ def chat_completions(
 ) -> dict:
     if authorization != "Bearer test-key":
         raise HTTPException(status_code=401, detail="Unauthorized")
+    system_prompt = payload.messages[0]["content"] if payload.messages else ""
+    if "QueryIntent" in system_prompt:
+        content = {
+            "metric": "amount",
+            "dimensions": ["region"],
+            "time_range": "latest_month",
+            "analysis_kind": "ranking",
+        }
+    else:
+        user_prompt = payload.messages[-1]["content"] if payload.messages else ""
+        content = {"narrative": user_prompt.split("本地事实：", 1)[-1]}
     return {
         "id": "mock-chat-completion",
         "object": "chat.completion",
@@ -29,14 +40,7 @@ def chat_completions(
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": json.dumps(
-                        {
-                            "metric": "amount",
-                            "dimensions": ["region"],
-                            "time_range": "latest_month",
-                            "analysis_kind": "ranking",
-                        }
-                    ),
+                    "content": json.dumps(content),
                 },
                 "finish_reason": "stop",
             }

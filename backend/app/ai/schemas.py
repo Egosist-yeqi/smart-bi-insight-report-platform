@@ -40,6 +40,7 @@ class AIProviderInput(BaseModel):
     model: str = Field(min_length=1, max_length=160)
     timeout_seconds: int = Field(default=30, ge=1, le=MAX_TIMEOUT_SECONDS)
     enabled: bool = True
+    allow_private_network: bool = False
 
     @field_validator("provider_name", "model")
     @classmethod
@@ -66,6 +67,7 @@ class AIProviderTestInput(BaseModel):
     model: str | None = Field(default=None, min_length=1, max_length=160)
     timeout_seconds: int | None = Field(default=None, ge=1, le=MAX_TIMEOUT_SECONDS)
     enabled: bool | None = None
+    allow_private_network: bool | None = None
 
     @field_validator("provider_name", "model")
     @classmethod
@@ -91,6 +93,7 @@ class AIProviderView(BaseModel):
     model: str | None = None
     timeout_seconds: int | None = None
     enabled: bool | None = None
+    allow_private_network: bool | None = None
     api_key_hint: str | None = None
 
 

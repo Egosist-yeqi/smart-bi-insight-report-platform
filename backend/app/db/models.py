@@ -93,6 +93,9 @@ class AIProviderConfig(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="1"
     )
+    allow_private_network: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="0"
+    )
     timeout_seconds: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="30"
     )

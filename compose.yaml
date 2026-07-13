@@ -47,7 +47,6 @@ services:
   mock-llm:
     build:
       context: ./backend
-    env_file: .env
     profiles: ["test"]
     volumes:
       - ./backend/mock_llm:/app/mock_llm:ro

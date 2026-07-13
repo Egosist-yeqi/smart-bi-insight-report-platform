@@ -19,6 +19,14 @@ from app.core.errors import AppError
 from app.core.logging import configure_logging
 
 
+def _sanitized_validation_details(exc: RequestValidationError) -> list[dict]:
+    """Validation input can contain credentials, so never reflect it to clients."""
+    return [
+        {key: error[key] for key in ("type", "loc", "msg") if key in error}
+        for error in exc.errors()
+    ]
+
+
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", uuid.uuid4().hex)
 
@@ -109,7 +117,7 @@ def create_app() -> FastAPI:
             code="VALIDATION_ERROR",
             message="Request validation failed",
             status_code=422,
-            details=exc.errors(),
+            details=_sanitized_validation_details(exc),
         )
 
     @app.exception_handler(Exception)

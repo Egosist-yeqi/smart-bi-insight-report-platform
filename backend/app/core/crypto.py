@@ -30,8 +30,8 @@ def decrypt_secret(encrypted_secret: str, fernet_key: str) -> str:
         return _fernet(fernet_key).decrypt(
             encrypted_secret.encode("ascii")
         ).decode("utf-8")
-    except (InvalidToken, UnicodeError, ValueError) as exc:
-        raise SecretDecryptionError() from exc
+    except (InvalidToken, UnicodeError, ValueError):
+        raise SecretDecryptionError() from None
 
 
 def mask_secret(secret: str) -> str:
@@ -39,7 +39,8 @@ def mask_secret(secret: str) -> str:
         return ""
     if len(secret) <= 4:
         return "*" * len(secret)
-    return f"{secret[:4]}...{secret[-4:]}"
+    visible = min(4, max(1, len(secret) // 3))
+    return f"{secret[:visible]}...{secret[-visible:]}"
 
 
 def _fernet(fernet_key: str) -> Fernet:

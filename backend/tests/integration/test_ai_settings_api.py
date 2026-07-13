@@ -25,6 +25,7 @@ def _provider_payload(api_key: str = "test-key") -> dict:
         "model": "mock-model",
         "timeout_seconds": 5,
         "enabled": True,
+        "allow_private_network": True,
     }
 
 
@@ -47,10 +48,12 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
         stored = db_session.get(AIProviderConfig, 1)
 
         assert saved.status_code == 200
-        assert saved_data["api_key_hint"] == "test...-key"
+        assert saved_data["api_key_hint"] == "te...ey"
+        assert saved_data["allow_private_network"] is True
         assert "test-key" not in saved.text
         assert stored is not None
         assert stored.encrypted_api_key != "test-key"
+        assert stored.allow_private_network is True
         encrypted_api_key = stored.encrypted_api_key
 
         report = api_client.post(
@@ -83,6 +86,55 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
         assert local_query.status_code == 200
         assert local_query.json()["data"]["engine"] == "local"
 
+    app.dependency_overrides.clear()
+
+
+def test_settings_validation_redacts_an_overlong_api_key(db_session):
+    app = create_app()
+    supplied_key = "test-key-" + "x" * 5_000
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        response = api_client.put("/api/settings/ai", json=_provider_payload(supplied_key))
+
+    assert response.status_code == 422
+    assert supplied_key not in response.text
+    assert "input" not in response.text
+    app.dependency_overrides.clear()
+
+
+def test_corrupted_encrypted_provider_falls_back_without_exposing_configuration(db_session):
+    seed_database(db_session)
+    app = create_app()
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        stored = db_session.get(AIProviderConfig, 1)
+        assert stored is not None
+        stored.encrypted_api_key = "corrupted-ciphertext"
+        db_session.commit()
+
+        query = api_client.post("/api/query", json={"question": "本月各区域销售额排名如何？"})
+        report = api_client.post(
+            "/api/reports/generate", json={"report_type": "月报", "modules": ["overview"]}
+        )
+        tested = api_client.post("/api/settings/ai/test", json={})
+
+    assert query.status_code == 200
+    assert query.json()["data"]["engine"] == "local"
+    assert "已使用本地规则解析" in query.json()["data"]["summary"]
+    assert report.status_code == 200
+    assert report.json()["data"]["engine"] == "local"
+    assert tested.status_code == 400
+    assert tested.json()["error"]["code"] == "AI_CONFIGURATION_INVALID"
+    assert "corrupted-ciphertext" not in tested.text
     app.dependency_overrides.clear()
 
 
