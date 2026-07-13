@@ -129,6 +129,10 @@ def generate_report(
         _section(module, report_data, completed_month_policy, anomalies, forecast)
         for module in selected_modules
     ]
+    if narrative is None:
+        from app.ai.service import get_report_narrative
+
+        narrative = get_report_narrative(session)
     sections, narrative_count = _add_narratives(sections, narrative)
     engine = "ai" if narrative_count else "local"
 

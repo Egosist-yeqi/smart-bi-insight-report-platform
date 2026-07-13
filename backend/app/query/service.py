@@ -62,9 +62,19 @@ def run_query(
     engine = "ai" if resolver is not None else "local"
     intent: QueryIntent | None = None
     built: BuiltQuery | None = None
+    fallback_notice: str | None = None
 
     try:
-        resolved_intent = resolver(question) if resolver is not None else parse_local(question)
+        try:
+            resolved_intent = (
+                resolver(question) if resolver is not None else parse_local(question)
+            )
+        except AppError as exc:
+            if resolver is None or not exc.code.startswith("AI_"):
+                raise
+            engine = "local"
+            fallback_notice = "AI 服务不可用，已使用本地规则解析。"
+            resolved_intent = parse_local(question)
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
         timeout_ms = get_settings().query_timeout_seconds * 1000
@@ -75,6 +85,8 @@ def run_query(
         raw_rows = [dict(row) for row in session.execute(text(built.sql), built.params).mappings()]
         context, rows = _extract_context(raw_rows)
         rows, answer, summary = _answer(intent, rows, context)
+        if fallback_notice:
+            summary = f"{summary}{fallback_notice}"
         chart_type = "line" if _answer_kind(intent) in {"week_over_week", "forecast"} or set(
             intent.dimensions
         ).intersection({"month", "week"}) else "bar"

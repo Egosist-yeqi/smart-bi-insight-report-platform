@@ -44,5 +44,14 @@ services:
       timeout: 5s
       retries: 30
 
+  mock-llm:
+    build:
+      context: ./backend
+    env_file: .env
+    profiles: ["test"]
+    volumes:
+      - ./backend/mock_llm:/app/mock_llm:ro
+    command: uvicorn mock_llm.main:app --host 0.0.0.0 --port 8090
+
 volumes:
   mysql_data:
