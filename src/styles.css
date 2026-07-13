@@ -147,6 +147,7 @@ button {
 }
 
 .command-bar input,
+.field-label input,
 .field-label select,
 .filter-strip select {
   width: 100%;
@@ -160,6 +161,20 @@ button {
 .command-bar input {
   padding: 0 12px;
   border-color: transparent;
+}
+
+.field-label input {
+  padding: 0 10px;
+}
+
+.status-refresh {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #65758a;
+  font-size: 13px;
+  text-decoration: underline;
 }
 
 .command-bar button,
@@ -529,6 +544,77 @@ th {
   gap: 8px;
 }
 
+.async-panel {
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 24px;
+  border: 1px dashed #cfd9e6;
+  border-radius: 8px;
+  color: #65758a;
+  text-align: center;
+}
+
+.async-panel--error {
+  color: #9b3d25;
+}
+
+.async-panel button {
+  justify-self: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cfd9e6;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #26364a;
+}
+
+.report-placeholder {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.config-checks {
+  margin: 16px 0;
+}
+
+.private-network-warning,
+.form-status {
+  margin: 10px 0 0;
+  color: #65758a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.private-network-warning {
+  padding: 10px 12px;
+  border-left: 3px solid #cf8a2f;
+  background: #fff9ed;
+  color: #76501c;
+}
+
+.form-status--error {
+  color: #b44325;
+}
+
+.button-danger {
+  border-color: #c5573c !important;
+  background: #c5573c !important;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -557,11 +643,29 @@ th {
   .metrics-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 680px) {
+  body {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
   .main-panel {
     padding: 16px;
+  }
+
+  .topbar h1,
+  .topbar p {
+    overflow-wrap: anywhere;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
   }
 
   .command-bar,

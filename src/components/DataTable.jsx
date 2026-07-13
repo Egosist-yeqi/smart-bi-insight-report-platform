@@ -3,9 +3,9 @@ import React from 'react';
 
 function formatCell(key, value) {
   if (value === undefined || value === null) return '-';
-  if (/amount|base|simulated|predicted/i.test(key)) return formatCurrency(value);
-  if (/profitRate|growth|delta|netChange/i.test(key)) return formatPercent(value);
-  if (/quantity|orderCount/i.test(key)) return formatNumber(value);
+  if (/amount|base|simulated|predicted|metric_value|current_value|previous_value/i.test(key)) return formatCurrency(value);
+  if (/profitRate|growth|delta|netChange|profit_rate/i.test(key)) return formatPercent(value);
+  if (/quantity|orderCount|order_count|latency_ms/i.test(key)) return formatNumber(value);
   return String(value);
 }
 
@@ -30,6 +30,17 @@ const columnLabels = {
   simulatedAmount: '模拟销售额',
   netChange: '净影响',
   explanation: '解释',
+  product_name: '产品',
+  metric_value: '指标值',
+  current_value: '当前值',
+  previous_value: '上月值',
+  evidence: '数据依据',
+  inference: '归因建议',
+  month: '月份',
+  is_estimate: '预测值',
+  code: '编码',
+  formula: '计算公式',
+  description: '说明',
 };
 
 export default function DataTable({ rows }) {
