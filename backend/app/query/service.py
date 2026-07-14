@@ -77,12 +77,7 @@ def run_query(
             resolved_intent = parse_local(question)
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
-        timeout_ms = get_settings().query_timeout_seconds * 1000
-        session.execute(
-            text("SET SESSION MAX_EXECUTION_TIME = :timeout_ms"),
-            {"timeout_ms": timeout_ms},
-        )
-        raw_rows = [dict(row) for row in session.execute(text(built.sql), built.params).mappings()]
+        raw_rows = _execute_business_select(session, built)
         context, rows = _extract_context(raw_rows)
         rows, answer, summary = _answer(intent, rows, context)
         if fallback_notice:
@@ -154,6 +149,30 @@ def run_query(
 def _validated_intent(value: QueryIntent | dict[str, Any]) -> QueryIntent:
     payload = value.model_dump() if isinstance(value, QueryIntent) else value
     return QueryIntent.model_validate(payload)
+
+
+def _execute_business_select(session: Session, built: BuiltQuery) -> list[dict[str, Any]]:
+    timeout_ms = get_settings().query_timeout_seconds * 1000
+    session.execute(
+        text("SET SESSION MAX_EXECUTION_TIME = :timeout_ms"),
+        {"timeout_ms": timeout_ms},
+    )
+    business_failed = False
+    try:
+        return [
+            dict(row)
+            for row in session.execute(text(built.sql), built.params).mappings()
+        ]
+    except BaseException:
+        business_failed = True
+        raise
+    finally:
+        try:
+            session.execute(text("SET SESSION MAX_EXECUTION_TIME = DEFAULT"))
+        except Exception:
+            session.invalidate()
+            if not business_failed:
+                raise
 
 
 def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict[str, Any]]]:

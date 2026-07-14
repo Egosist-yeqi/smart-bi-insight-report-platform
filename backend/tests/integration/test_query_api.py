@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app.core.errors import AppError
 from app.db.models import QueryHistory, SalesOrder
 from app.db.seed import seed_database
 from app.db.session import get_session
@@ -178,7 +179,7 @@ def test_query_service_revalidates_a_mutated_resolver_intent(db_session, monkeyp
         "下个月销售额可能是多少？",
     ],
 )
-def test_query_service_sets_timeout_then_executes_exactly_one_business_select(
+def test_query_service_scopes_timeout_around_exactly_one_business_select(
     db_session, monkeypatch, question
 ):
     seed_database(db_session)
@@ -202,9 +203,73 @@ def test_query_service_sets_timeout_then_executes_exactly_one_business_select(
         if statement.upper().startswith("SET SESSION MAX_EXECUTION_TIME")
     )
     select_index = statements.index(select_statements[0])
+    restore_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.upper() == "SET SESSION MAX_EXECUTION_TIME = DEFAULT"
+    )
 
     assert len(select_statements) == 1
-    assert timeout_index < select_index
+    assert timeout_index < select_index < restore_index
+
+
+def test_query_service_restores_timeout_after_the_business_select_fails(
+    db_session, monkeypatch
+):
+    seed_database(db_session)
+    original_execute = db_session.execute
+    statements = []
+
+    def failing_business_select(statement, *args, **kwargs):
+        sql = str(statement).strip()
+        statements.append(sql)
+        if sql.upper().startswith("SELECT"):
+            raise RuntimeError("synthetic query failure")
+        return original_execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", failing_business_select)
+
+    with pytest.raises(AppError) as error:
+        run_query(db_session, "本月各区域销售额排名如何？")
+
+    assert getattr(error.value, "code", None) == "QUERY_EXECUTION_FAILED"
+    assert [
+        "SELECT" if statement.upper().startswith("SELECT") else statement.upper()
+        for statement in statements
+    ][:3] == [
+        "SET SESSION MAX_EXECUTION_TIME = :TIMEOUT_MS",
+        "SELECT",
+        "SET SESSION MAX_EXECUTION_TIME = DEFAULT",
+    ]
+    assert sum(statement.upper().startswith("SELECT") for statement in statements) == 1
+
+
+def test_query_service_invalidates_connection_when_timeout_restore_fails(
+    db_session, monkeypatch
+):
+    seed_database(db_session)
+    original_execute = db_session.execute
+    original_invalidate = db_session.invalidate
+    invalidated = False
+
+    def fail_restore(statement, *args, **kwargs):
+        if str(statement).strip().upper() == "SET SESSION MAX_EXECUTION_TIME = DEFAULT":
+            raise RuntimeError("synthetic restore failure")
+        return original_execute(statement, *args, **kwargs)
+
+    def record_invalidation():
+        nonlocal invalidated
+        invalidated = True
+        return original_invalidate()
+
+    monkeypatch.setattr(db_session, "execute", fail_restore)
+    monkeypatch.setattr(db_session, "invalidate", record_invalidation)
+
+    with pytest.raises(AppError) as error:
+        run_query(db_session, "本月各区域销售额排名如何？")
+
+    assert error.value.code == "QUERY_EXECUTION_FAILED"
+    assert invalidated is True
 
 
 def test_query_service_preserves_context_for_a_dimensioned_zero_match(db_session, monkeypatch):
@@ -240,9 +305,14 @@ def test_query_service_preserves_context_for_a_dimensioned_zero_match(db_session
         for index, statement in enumerate(statements)
         if statement.upper().startswith("SET SESSION MAX_EXECUTION_TIME")
     )
+    restore_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if statement.upper() == "SET SESSION MAX_EXECUTION_TIME = DEFAULT"
+    )
 
     assert len(select_statements) == 1
-    assert timeout_index < statements.index(select_statements[0])
+    assert timeout_index < statements.index(select_statements[0]) < restore_index
     assert result.data_as_of == expected_as_of
     assert result.data_period == f"数据范围{expected_start.isoformat()}至{expected_as_of.isoformat()}"
     assert result.query_period == f"{expected_as_of:%Y-%m}"
