@@ -574,6 +574,93 @@ th {
   color: #26364a;
 }
 
+.query-history__list {
+  border-top: 1px solid #e4eaf1;
+}
+
+.query-history__item {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.15fr) minmax(240px, 1.6fr) auto;
+  gap: 18px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid #e4eaf1;
+}
+
+.query-history__identity,
+.query-history__summary {
+  min-width: 0;
+}
+
+.query-history__question {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.query-history__meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 7px;
+}
+
+.query-history__engine,
+.query-history__status {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.query-history__engine {
+  background: #edf2f7;
+  color: #53657a;
+}
+
+.query-history__status--succeeded {
+  background: #e9f7f2;
+  color: #12785f;
+}
+
+.query-history__status--failed {
+  background: #fff0eb;
+  color: #a6452c;
+}
+
+.query-history__summary {
+  margin: 0;
+  color: #53657a;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.query-history time {
+  color: #65758a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.query-history__state {
+  display: grid;
+  place-content: center;
+  min-height: 140px;
+  color: #65758a;
+  text-align: center;
+}
+
+.query-history__state--error {
+  gap: 12px;
+  color: #9b3d25;
+}
+
+.query-history__state--error button {
+  justify-self: center;
+}
+
 .report-placeholder {
   min-height: 420px;
   display: grid;
@@ -685,7 +772,7 @@ button:disabled {
   }
 
   .sidebar {
-    position: sticky;
+    position: static;
     z-index: 10;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -731,6 +818,15 @@ button:disabled {
   .sample-grid,
   .metrics-row {
     grid-template-columns: 1fr;
+  }
+
+  .query-history__item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .query-history time {
+    white-space: normal;
   }
 
   .nav-list {

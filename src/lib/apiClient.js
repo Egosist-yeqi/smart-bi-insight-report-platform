@@ -74,7 +74,7 @@ export function createApiClient(fetchImpl = globalThis.fetch) {
     saveAi: (payload, options) => request('/api/settings/ai', { ...options, method: 'PUT', body: payload }),
     testAi: (payload, options) => request('/api/settings/ai/test', { ...options, method: 'POST', body: payload }),
     deleteAi: (options) => request('/api/settings/ai', { ...options, method: 'DELETE' }),
-    queryHistory: (options) => request('/api/query-history', options),
+    queryHistory: (options) => request('/api/query-history?limit=20', options),
   };
 }
 

@@ -64,7 +64,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset.ps1 -ConfirmReset
 ```
 
-完整测试使用独立的固定 `-test` Compose 项目、独立 MySQL 数据卷和仅供测试的 `mock-llm`，不会读取或修改正常项目的数据库、卷或 AI 配置。测试期间仅将测试后端映射到 `127.0.0.1:8001`，再由 Playwright 临时启动 `127.0.0.1:8081` 的 Vite 前端；不会占用正常应用的 `8080`。它依次执行 Alembic、后端 Pytest、前端测试、Vite 构建和 Chrome 端到端验收；无论成功、部分启动失败还是测试失败，都会清理整个测试项目及其测试卷。若缺少 `node_modules` 或前端工具，脚本会先按 `package-lock.json` 运行 `npm.cmd ci`：
+完整测试使用独立的固定 `-test` Compose 项目、独立 MySQL 数据卷和仅供测试的 `mock-llm`，不会读取或修改正常项目的数据库、卷或 AI 配置。测试期间由 Compose 启动生产构建的 Nginx 前端并映射到 `127.0.0.1:8081`，通过测试网络代理后端；Playwright 不会启动 Vite，也不会占用正常应用的 `8080`。它依次执行 Alembic、后端 Pytest、前端测试、Vite 构建、Nginx 容器构建和 Chrome 端到端验收，并在测试专用 MySQL/后端重启前后断言 540 条订单保持不变；无论成功、部分启动失败还是测试失败，都会清理整个测试项目及其测试卷。若缺少 `node_modules` 或前端工具，脚本会先按 `package-lock.json` 运行 `npm.cmd ci`：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
@@ -108,4 +108,4 @@ PDF 项目说明中给出的技术方向包括：
 - 数据库：MySQL 8.0
 - 服务与部署：Nginx
 
-当前版本先实现 React + Vite 前端原型和本地演示数据闭环。后续建议补充 FastAPI 作为 Python 后端接口层，将真实 Text-to-SQL、报告生成、异常分析和预测能力封装为可调用服务，并接入 MySQL 8.0。
+当前版本使用 React + Vite 构建前端，由 Nginx 提供静态资源和 `/api` 代理；FastAPI 提供查询、报告、异常、预测和 AI 配置接口，MySQL 8.4 保存业务数据、指标、模板、查询历史和加密配置。

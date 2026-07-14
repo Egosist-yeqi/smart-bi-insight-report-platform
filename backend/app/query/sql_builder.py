@@ -28,9 +28,17 @@ DIMENSIONS = {
 }
 
 METRIC_COLUMNS = {"amount": "amount", "quantity": "quantity", "profit": "profit"}
+METRIC_REGISTRY_CODES = {
+    "amount": "sales_amount",
+    "quantity": "quantity",
+    "order_count": "order_count",
+    "avg_order_value": "average_order_value",
+    "profit": "profit",
+}
 
 ALLOWED_IDENTIFIERS = {
     "sales_order",
+    "metric_definition",
     "id",
     "order_date",
     "region",
@@ -42,6 +50,8 @@ ALLOWED_IDENTIFIERS = {
     "amount",
     "profit",
     "metric_value",
+    "metric_code",
+    "enabled",
     "month",
     "week",
     "data_context",
@@ -50,6 +60,7 @@ ALLOWED_IDENTIFIERS = {
     "_data_start",
     "_data_as_of",
     "_match_count",
+    "_metric_authorized",
     "_forecast_quantity",
 }
 ALLOWED_SQL_WORDS = {
@@ -78,6 +89,9 @@ ALLOWED_SQL_WORDS = {
     "LEFT",
     "JOIN",
     "ON",
+    "IS",
+    "NOT",
+    "NULL",
 }
 FORBIDDEN_KEYWORDS = {
     "ALTER",
@@ -117,11 +131,14 @@ def build_select(intent: QueryIntent) -> BuiltQuery:
         "MIN(data_context.data_start) AS _data_start",
         "MIN(data_context.data_as_of) AS _data_as_of",
         "COUNT(sales_order.id) AS _match_count",
+        "COUNT(metric_definition.id) AS _metric_authorized",
     ]
     if _is_forecast(intent):
         select_parts.append("SUM(quantity) AS _forecast_quantity")
     predicates: list[str] = []
-    params: dict[str, str | int] = {}
+    params: dict[str, str | int] = {
+        "metric_code": METRIC_REGISTRY_CODES[intent.metric]
+    }
 
     if intent.time_range != "all":
         predicates.append(_time_predicate(intent.time_range))
@@ -136,7 +153,11 @@ def build_select(intent: QueryIntent) -> BuiltQuery:
         f"SELECT {', '.join(select_parts)} FROM "
         "(SELECT MIN(order_date) AS data_start, MAX(order_date) AS data_as_of "
         "FROM sales_order) AS data_context "
-        f"LEFT JOIN sales_order ON {join_condition}"
+        "LEFT JOIN metric_definition ON "
+        "metric_definition.metric_code = :metric_code "
+        "AND metric_definition.enabled = 1 "
+        "LEFT JOIN sales_order ON metric_definition.id IS NOT NULL "
+        f"AND {join_condition}"
     ]
     if group_dimensions:
         sql_parts.append(f"GROUP BY {', '.join(group_dimensions)}")
@@ -161,7 +182,7 @@ def _validated_intent(intent: QueryIntent) -> QueryIntent:
 
 def _metric_expression(intent: QueryIntent) -> str:
     if intent.metric == "order_count":
-        return "COUNT(id) AS metric_value"
+        return "COUNT(sales_order.id) AS metric_value"
     if intent.metric == "avg_order_value":
         return "AVG(amount) AS metric_value"
     function = {"sum": "SUM", "count": "COUNT", "average": "AVG"}[intent.aggregation]
@@ -208,12 +229,15 @@ def validate_read_only_sql(sql: str) -> None:
         raise UnsafeQueryError()
     if len(re.findall(r"\bSELECT\b", normalized, flags=re.IGNORECASE)) != 2:
         raise UnsafeQueryError()
-    if len(re.findall(r"\bJOIN\b", normalized, flags=re.IGNORECASE)) != 1:
+    if len(re.findall(r"\bJOIN\b", normalized, flags=re.IGNORECASE)) != 2:
         raise UnsafeQueryError()
     if not re.search(
         r"\bFROM\s+\(SELECT\s+MIN\(order_date\)\s+AS\s+data_start,\s*"
         r"MAX\(order_date\)\s+AS\s+data_as_of\s+FROM\s+sales_order\)\s+AS\s+"
-        r"data_context\s+LEFT\s+JOIN\s+sales_order\s+ON\b",
+        r"data_context\s+LEFT\s+JOIN\s+metric_definition\s+ON\s+"
+        r"metric_definition\.metric_code\s*=\s*:metric_code\s+AND\s+"
+        r"metric_definition\.enabled\s*=\s*1\s+LEFT\s+JOIN\s+sales_order\s+ON\s+"
+        r"metric_definition\.id\s+IS\s+NOT\s+NULL\s+AND\b",
         normalized,
         flags=re.IGNORECASE,
     ):

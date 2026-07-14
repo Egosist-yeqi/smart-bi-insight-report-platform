@@ -35,6 +35,21 @@ services:
       timeout: 5s
       retries: 30
 
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   mock-llm:
     build:
       context: ./backend

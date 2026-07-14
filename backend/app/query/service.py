@@ -48,6 +48,15 @@ class InvalidQueryIntentError(AppError):
         )
 
 
+class MetricNotAvailableError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="METRIC_NOT_AVAILABLE",
+            message="该指标未登记或已停用，无法执行查询。",
+            status_code=400,
+        )
+
+
 @dataclass(frozen=True)
 class DataContext:
     data_start: date | None
@@ -184,8 +193,8 @@ def _execute_business_select(session: Session, built: BuiltQuery) -> list[dict[s
 
 
 def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict[str, Any]]]:
-    if not rows:
-        return DataContext(data_start=None, data_as_of=None), []
+    if not rows or not any(int(row.get("_metric_authorized") or 0) > 0 for row in rows):
+        raise MetricNotAvailableError()
     context = DataContext(
         data_start=rows[0].get("_data_start"),
         data_as_of=rows[0].get("_data_as_of"),
@@ -194,7 +203,13 @@ def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict
         {
             key: value
             for key, value in row.items()
-            if key not in {"_data_start", "_data_as_of", "_match_count"}
+            if key
+            not in {
+                "_data_start",
+                "_data_as_of",
+                "_match_count",
+                "_metric_authorized",
+            }
         }
         for row in rows
         if int(row.get("_match_count") or 0) > 0

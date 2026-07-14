@@ -1,9 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.core.errors import AppError
-from app.db.models import QueryHistory, SalesOrder
+from app.db.models import MetricDefinition, QueryHistory, SalesOrder
 from app.db.seed import seed_database
 from app.db.session import get_session
 from app.main import create_app
@@ -41,6 +41,92 @@ def test_query_api_runs_local_intent_against_mysql(api_client):
     assert data["sql"].startswith("SELECT")
     assert data["summary"]
     assert data["chart_type"] == "bar"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "上月华东区销售额最高的产品是什么？",
+        "本月各区域销售额排名如何？",
+        "最近30天销售额趋势如何？",
+        "哪个产品类别的毛利最高？",
+        "本周订单量相比上周下降了吗？",
+        "为什么本月华南区销售额出现下降？",
+        "下个月销售额可能是多少？",
+        "如果华东区促销投入增加10%，价格下降5%，销售额会怎样？",
+    ],
+)
+def test_all_shipped_sample_questions_execute_against_registered_metrics(
+    api_client, question
+):
+    response = api_client.post("/api/query", json={"question": question})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["safe"] is True
+
+
+@pytest.mark.parametrize("registry_change", ["disable", "delete"])
+def test_query_api_rejects_an_unavailable_registered_metric_in_one_select(
+    api_client, db_session, monkeypatch, registry_change
+):
+    metric = db_session.scalar(
+        select(MetricDefinition).where(MetricDefinition.metric_code == "sales_amount")
+    )
+    assert metric is not None
+    if registry_change == "disable":
+        metric.enabled = False
+    else:
+        db_session.delete(metric)
+    db_session.commit()
+
+    original_execute = db_session.execute
+    business_selects = []
+
+    def recording_execute(statement, *args, **kwargs):
+        sql = str(statement).strip()
+        if sql.upper().startswith("SELECT") and "FROM (SELECT MIN(order_date)" in sql:
+            business_selects.append((sql, args[0] if args else kwargs.get("params", {})))
+        return original_execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", recording_execute)
+    response = api_client.post(
+        "/api/query",
+        json={"question": "上月华东区销售额最高的产品是什么？"},
+    )
+    monkeypatch.setattr(db_session, "execute", original_execute)
+
+    history = db_session.scalar(
+        select(QueryHistory).order_by(QueryHistory.id.desc()).limit(1)
+    )
+    body = response.json()
+    assert response.status_code == 400
+    assert body["error"]["code"] == "METRIC_NOT_AVAILABLE"
+    assert body["error"]["message"] == "该指标未登记或已停用，无法执行查询。"
+    assert "data" not in body
+    assert len(business_selects) == 1
+    assert business_selects[0][1]["metric_code"] == "sales_amount"
+    assert history is not None
+    assert history.status == "failed"
+    assert history.error_code == "METRIC_NOT_AVAILABLE"
+
+
+def test_query_service_rejects_unseeded_quantity_metric_and_records_failure(db_session):
+    seed_database(db_session)
+
+    with pytest.raises(AppError) as error:
+        run_query(
+            db_session,
+            "查询销售数量",
+            resolver=lambda _question: QueryIntent(metric="quantity"),
+        )
+
+    history = db_session.scalar(
+        select(QueryHistory).order_by(QueryHistory.id.desc()).limit(1)
+    )
+    assert error.value.code == "METRIC_NOT_AVAILABLE"
+    assert history is not None
+    assert history.status == "failed"
+    assert history.error_code == "METRIC_NOT_AVAILABLE"
 
 
 def test_query_api_records_a_failed_unrecognized_question(api_client, db_session):
@@ -323,6 +409,10 @@ def test_query_service_preserves_context_for_a_dimensioned_zero_match(db_session
 
 
 def test_query_service_reports_a_truly_empty_dataset_for_dimensionless_aggregate(db_session):
+    seed_database(db_session)
+    db_session.execute(delete(SalesOrder))
+    db_session.commit()
+
     result = run_query(
         db_session,
         "查询空数据集",

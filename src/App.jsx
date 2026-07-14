@@ -17,11 +17,18 @@ export default function App() {
   const [queryRequest, setQueryRequest] = useState({ question: firstQuestion });
   const health = useAsync((signal) => apiClient.health({ signal }), []);
   const provider = useAsync((signal) => apiClient.getAi({ signal }), []);
-  const query = useAsync((signal) => apiClient.query(queryRequest.question, { signal }), [queryRequest]);
+  const history = useAsync(() => apiClient.queryHistory(), []);
+  const query = useAsync(async (signal) => {
+    try {
+      return await apiClient.query(queryRequest.question, { signal });
+    } finally {
+      if (!signal.aborted) history.reload();
+    }
+  }, [queryRequest]);
   const runQuery = (value = question) => { if (!value.trim()) return; setActive('智能查询'); setQueryRequest({ question: value.trim() }); };
 
   const views = {
-    '智能查询': <QueryView question={question} setQuestion={setQuestion} submitQuestion={runQuery} resource={query} />,
+    '智能查询': <QueryView question={question} setQuestion={setQuestion} submitQuestion={runQuery} resource={query} historyResource={history} />,
     仪表盘: <DashboardView />,
     报告生成: <ReportView />,
     异常归因: <AnomalyView />,

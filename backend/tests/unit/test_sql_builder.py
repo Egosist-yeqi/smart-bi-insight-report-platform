@@ -62,6 +62,26 @@ def test_builder_embeds_data_as_of_context_in_the_single_generated_select():
 
 
 @pytest.mark.parametrize(
+    ("metric", "metric_code"),
+    [
+        ("amount", "sales_amount"),
+        ("order_count", "order_count"),
+        ("avg_order_value", "average_order_value"),
+        ("profit", "profit"),
+        ("quantity", "quantity"),
+    ],
+)
+def test_builder_binds_each_intent_metric_to_its_registry_code(metric, metric_code):
+    aggregation = "count" if metric == "order_count" else "average" if metric == "avg_order_value" else "sum"
+
+    built = build_select(QueryIntent(metric=metric, aggregation=aggregation))
+
+    assert "metric_definition.metric_code = :metric_code" in built.sql
+    assert "metric_definition.enabled = 1" in built.sql
+    assert built.params["metric_code"] == metric_code
+
+
+@pytest.mark.parametrize(
     ("metric", "aggregation", "fragment"),
     [
         ("amount", "sum", "SUM(amount) AS metric_value"),
@@ -73,7 +93,7 @@ def test_builder_embeds_data_as_of_context_in_the_single_generated_select():
         ("profit", "sum", "SUM(profit) AS metric_value"),
         ("profit", "count", "COUNT(profit) AS metric_value"),
         ("profit", "average", "AVG(profit) AS metric_value"),
-        ("order_count", "count", "COUNT(id) AS metric_value"),
+        ("order_count", "count", "COUNT(sales_order.id) AS metric_value"),
         ("avg_order_value", "average", "AVG(amount) AS metric_value"),
     ],
 )

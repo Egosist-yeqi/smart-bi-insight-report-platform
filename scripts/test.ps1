@@ -48,6 +48,47 @@ function Wait-ForBackendHealth {
     throw 'Isolated test backend did not reach its Docker healthcheck within 180 seconds.'
 }
 
+function Wait-ForFrontendHealth {
+    param(
+        [string]$Docker,
+        [pscustomobject]$Context
+    )
+
+    $deadline = (Get-Date).AddSeconds(180)
+    do {
+        $containerIds = @(Get-PinnedComposeOutput -Docker $Docker -Context $Context -Arguments @('ps', '-q', 'frontend'))
+        $containerId = $containerIds | Select-Object -First 1
+        if ($containerId) {
+            $status = (& $Docker inspect --format '{{.State.Health.Status}}' $containerId.Trim()).Trim()
+            if ($LASTEXITCODE -eq 0 -and $status -eq 'healthy') {
+                return
+            }
+        }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+
+    throw 'Isolated test frontend did not reach its Docker healthcheck within 180 seconds.'
+}
+
+function Assert-IsolatedOrderCount {
+    param(
+        [string]$Docker,
+        [pscustomobject]$Context,
+        [int]$Expected
+    )
+
+    $output = @(Get-PinnedComposeOutput -Docker $Docker -Context $Context -Arguments @(
+        'exec', '-T', 'mysql',
+        'mysql', '--user=smart_bi_test', '--password=test_only_password',
+        '--database=smart_bi_test', '--batch', '--skip-column-names',
+        '--execute', 'SELECT COUNT(*) FROM sales_order;'
+    ))
+    $countText = $output | Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -Last 1
+    if ($null -eq $countText -or [int]$countText.Trim() -ne $Expected) {
+        throw "Expected $Expected isolated sales_order rows, but observed '$countText'."
+    }
+}
+
 function Invoke-NpmCommand {
     param([string[]]$Arguments)
 
@@ -100,9 +141,19 @@ try {
     Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--build', 'backend')
     Wait-ForBackendHealth -Docker $docker -Context $context
 
+    # Prove the disposable named volume survives service restarts before browser acceptance.
+    Assert-IsolatedOrderCount -Docker $docker -Context $context -Expected 540
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('restart', 'mysql')
+    Wait-ForMySqlHealth -Docker $docker -Context $context
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('restart', 'backend')
+    Wait-ForBackendHealth -Docker $docker -Context $context
+    Assert-IsolatedOrderCount -Docker $docker -Context $context -Expected 540
+
     Ensure-FrontendDependencies
     Invoke-NpmCommand -Arguments @('test')
     Invoke-NpmCommand -Arguments @('run', 'build')
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--build', 'frontend')
+    Wait-ForFrontendHealth -Docker $docker -Context $context
     Invoke-NpmCommand -Arguments @('run', 'test:e2e')
 }
 catch {

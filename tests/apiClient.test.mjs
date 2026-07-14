@@ -48,6 +48,21 @@ test('health errors preserve safe database details and request id', async () => 
   });
 });
 
+test('query history requests a fixed bounded page', async () => {
+  let requestedPath;
+  const client = createApiClient(async (path) => {
+    requestedPath = path;
+    return new Response(JSON.stringify({ data: [], request_id: 'history-request' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  await client.queryHistory();
+
+  assert.equal(requestedPath, '/api/query-history?limit=20');
+});
+
 test('CSV sanitizes formula-leading values after whitespace and preserves Chinese newlines', () => {
   assert.equal(sanitizeCsvCell(' \t=SUM(A1:A2)'), "' \t=SUM(A1:A2)");
   assert.equal(sanitizeCsvCell('+1'), "'+1");

@@ -3,6 +3,7 @@ import AsyncPanel from '../components/AsyncPanel.jsx';
 import DataTable from '../components/DataTable.jsx';
 import { BarChart, LineChart } from '../components/Charts.jsx';
 import { downloadText, rowsToCsv } from '../lib/downloads.js';
+import { prepareQueryHistory, QUERY_HISTORY_LIMIT } from '../lib/queryHistory.js';
 
 const sampleQuestions = [
   '上月华东区销售额最高的产品是什么？', '本月各区域销售额排名如何？',
@@ -25,7 +26,48 @@ function provenanceText(result) {
   return 'AI 解析结果已通过只读 SQL 校验。';
 }
 
-export default function QueryView({ question, setQuestion, submitQuestion, resource }) {
+function historyTime(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return '时间未知';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function QueryHistory({ resource }) {
+  let content;
+  if (resource.loading) {
+    content = <div className="query-history__state" role="status">正在加载查询历史...</div>;
+  } else if (resource.error) {
+    content = <div className="query-history__state query-history__state--error" role="alert"><strong>{resource.error.message || '查询历史加载失败。'}</strong><button type="button" onClick={resource.reload}>重试</button></div>;
+  } else {
+    const records = prepareQueryHistory(resource.data?.data);
+    content = records.length ? <div className="query-history__list">{records.map((record, index) => (
+      <div className="query-history__item" key={`${record.createdAt}-${record.question}-${index}`}>
+        <div className="query-history__identity">
+          <strong className="query-history__question">{record.question}</strong>
+          <div className="query-history__meta">
+            <span className="query-history__engine">{record.engine === 'ai' ? 'AI' : '本地'}</span>
+            <span className={`query-history__status query-history__status--${record.status}`}>{record.status === 'succeeded' ? '成功' : '失败'}</span>
+          </div>
+        </div>
+        <p className="query-history__summary">{record.summary || (record.status === 'failed' ? '查询未完成' : '暂无摘要')}</p>
+        <time dateTime={record.createdAt}>{historyTime(record.createdAt)}</time>
+      </div>
+    ))}</div> : <div className="query-history__state query-history__state--empty">暂无查询历史</div>;
+  }
+
+  return <div className="panel panel--span-12 query-history">
+    <div className="panel-header"><h2>查询历史</h2><span>最近 {QUERY_HISTORY_LIMIT} 条</span></div>
+    {content}
+  </div>;
+}
+
+export default function QueryView({ question, setQuestion, submitQuestion, resource, historyResource }) {
   return (
     <section className="workspace">
       <div className="panel panel--span-7">
@@ -56,6 +98,7 @@ export default function QueryView({ question, setQuestion, submitQuestion, resou
         <div className="panel-header"><h2>结果表</h2><span>自动匹配业务指标与维度</span></div>
         <AsyncPanel resource={resource} minHeight={220}>{(response) => <DataTable rows={response?.data?.rows || []} />}</AsyncPanel>
       </div>
+      <QueryHistory resource={historyResource} />
     </section>
   );
 }
