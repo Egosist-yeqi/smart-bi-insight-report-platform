@@ -7,6 +7,13 @@ import { useAsync } from '../hooks/useAsync.js';
 const modulesList = [{ id: 'overview', label: '销售概览' }, { id: 'region', label: '区域分析' }, { id: 'ranking', label: '产品排行' }, { id: 'anomaly', label: '异常指标' }, { id: 'forecast', label: '趋势预测' }];
 const defaultModules = modulesList.map((module) => module.id);
 
+const provenanceLabels = {
+  ai_assisted: 'AI 辅助',
+  ai_partial: '部分 AI 辅助',
+  local_fallback: '本地回退',
+  local: '本地分析',
+};
+
 export default function ReportView() {
   const [reportType, setReportType] = useState('月报');
   const [modules, setModules] = useState(defaultModules);
@@ -17,6 +24,6 @@ export default function ReportView() {
 
   return <section className="workspace">
     <div className="panel panel--span-4"><div className="panel-header"><h2>报告配置</h2><span>模板驱动</span></div><label className="field-label">报告类型<select value={reportType} onChange={(event) => setReportType(event.target.value)}><option>周报</option><option>月报</option><option>自定义报告</option></select></label><div className="check-list">{modulesList.map((module) => <label key={module.id}><input type="checkbox" checked={modules.includes(module.id)} onChange={() => toggle(module.id)} />{module.label}</label>)}</div><div className="actions-row"><button type="button" disabled={!modules.length || report.loading} onClick={() => setRequest({ report_type: reportType, modules })}>{report.loading ? '生成中...' : '生成报告'}</button><button type="button" disabled={!result} onClick={() => downloadText(`${result.period}-智能BI经营分析报告.md`, result.markdown, 'text/markdown;charset=utf-8')}>导出 Markdown</button></div></div>
-    <div className="panel panel--span-8"><div className="panel-header"><h2>{result?.title || '报告预览'}</h2><span>{result ? `${result.engine === 'ai' ? 'AI 辅助' : '本地分析'} · ${result.period}` : '等待生成'}</span></div>{request ? <AsyncPanel resource={report} minHeight={420}>{(response) => <div className="report-preview">{(response?.data?.sections || []).map((section) => <article key={section.id}><h3>{section.title}</h3><p>{section.content}</p></article>)}</div>}</AsyncPanel> : <div className="empty-state report-placeholder">选择报告类型和模块后生成预览</div>}</div>
+    <div className="panel panel--span-8"><div className="panel-header"><h2>{result?.title || '报告预览'}</h2><span>{result ? `${provenanceLabels[result.provenance] || (result.engine === 'ai' ? 'AI 辅助' : '本地分析')} · ${result.period}` : '等待生成'}</span></div>{result?.warning ? <div className="analysis-warning" role="status"><strong>{result.warning.message}</strong><span>{result.warning.code}</span></div> : null}{request ? <AsyncPanel resource={report} minHeight={420}>{(response) => <div className="report-preview">{(response?.data?.sections || []).map((section) => <article key={section.id}><h3>{section.title}</h3><p>{section.content}</p></article>)}</div>}</AsyncPanel> : <div className="empty-state report-placeholder">选择报告类型和模块后生成预览</div>}</div>
   </section>;
 }

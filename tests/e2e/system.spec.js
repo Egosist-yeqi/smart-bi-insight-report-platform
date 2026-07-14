@@ -110,3 +110,59 @@ test('shows a database outage reported by the health endpoint', async ({ page })
   await expect(page.getByText('MySQL 异常')).toBeVisible();
   await expect(page.getByText('数据库连接不可用。')).toBeVisible();
 });
+
+test('shows structured AI fallback for queries and reports', async ({ page }) => {
+  await page.route('**/api/**', async (route) => {
+    const { pathname } = new URL(route.request().url());
+    const envelopes = {
+      '/api/health': {
+        data: { app: 'up', database: 'up', seeded_orders: 540, ai_mode: 'local' },
+        request_id: 'fallback-health',
+      },
+      '/api/settings/ai': {
+        data: { configured: true, enabled: true, provider_name: 'Unavailable AI' },
+        request_id: 'fallback-settings',
+      },
+      '/api/query': {
+        data: {
+          engine: 'local',
+          provenance: 'local_fallback',
+          warning: { code: 'AI_TIMEOUT', message: 'AI 服务不可用，已切换到本地规则解析。' },
+          safe: true,
+          sql: 'SELECT region, SUM(amount) FROM sales_order GROUP BY region',
+          rows: [],
+          chart_type: 'bar',
+          summary: '本地查询结果。',
+          data_period: '数据范围2025-01-01至2026-06-27',
+          query_period: '2026-06',
+        },
+        request_id: 'fallback-query',
+      },
+      '/api/reports/generate': {
+        data: {
+          title: '本地回退报告',
+          period: '2026-06-01/2026-06-27',
+          sections: [{ id: 'overview', title: '销售概览', content: '本地报告内容。' }],
+          markdown: '# 本地回退报告',
+          engine: 'local',
+          provenance: 'local_fallback',
+          warning: { code: 'AI_BAD_RESPONSE', message: 'AI 叙述服务不可用，已保留本地报告内容。' },
+        },
+        request_id: 'fallback-report',
+      },
+    };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(envelopes[pathname]) });
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByText('AI 服务不可用，已切换到本地规则解析。')).toBeVisible();
+  await expect(page.getByText('AI_TIMEOUT')).toBeVisible();
+  await expect(page.getByText('本地回退结果已通过只读 SQL 校验。')).toBeVisible();
+
+  await openView(page, '报告生成');
+  await page.getByRole('button', { name: '生成报告', exact: true }).click();
+  await expect(page.getByText('AI 叙述服务不可用，已保留本地报告内容。')).toBeVisible();
+  await expect(page.getByText('AI_BAD_RESPONSE')).toBeVisible();
+  await expect(page.getByText(/本地回退 · 2026-06-01\/2026-06-27/)).toBeVisible();
+});

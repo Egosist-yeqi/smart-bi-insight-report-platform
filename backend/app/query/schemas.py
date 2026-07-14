@@ -4,6 +4,8 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.warnings import ServiceWarning
+
 MetricCode = Literal["amount", "quantity", "order_count", "avg_order_value", "profit"]
 DimensionCode = Literal[
     "region",
@@ -75,6 +77,8 @@ class QueryRequest(BaseModel):
 class QueryResult(BaseModel):
     intent: QueryIntent
     engine: Literal["local", "ai"]
+    provenance: Literal["local", "ai", "local_fallback"]
+    warning: ServiceWarning | None = None
     safe: bool
     sql: str
     rows: list[dict[str, Any]]

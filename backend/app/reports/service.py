@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics.service import detect_anomalies, forecast_next_month
 from app.core.errors import AppError
+from app.core.warnings import ServiceWarning, ai_service_warning
 from app.db.models import SalesOrder
 from app.reports.schemas import ReportRequest, ReportResult, ReportSection
 
@@ -129,12 +130,26 @@ def generate_report(
         _section(module, report_data, completed_month_policy, anomalies, forecast)
         for module in selected_modules
     ]
+    warning: ServiceWarning | None = None
     if narrative is None:
         from app.ai.service import get_report_narrative
 
-        narrative = get_report_narrative(session)
-    sections, narrative_count = _add_narratives(sections, narrative)
+        try:
+            narrative = get_report_narrative(session)
+        except AppError as exc:
+            warning = report_fallback_warning(exc)
+    sections, narrative_count, narrative_error = _add_narratives(sections, narrative)
+    if narrative_error is not None and warning is None:
+        warning = report_fallback_warning(narrative_error)
     engine = "ai" if narrative_count else "local"
+    if narrative_count:
+        provenance = (
+            "ai_assisted"
+            if narrative_count == len(sections) and warning is None
+            else "ai_partial"
+        )
+    else:
+        provenance = "local_fallback" if warning else "local"
 
     generated_at = datetime.now(timezone.utc)
     title = f"{report_data.period.label} 智能 BI 经营分析{request.report_type}"
@@ -146,11 +161,21 @@ def generate_report(
             title,
             report_data.period,
             sections,
-            engine,
+            provenance,
             generated_at,
         ),
         engine=engine,
+        provenance=provenance,
+        warning=warning,
         generated_at=generated_at,
+    )
+
+
+def report_fallback_warning(error: Exception) -> ServiceWarning:
+    return ai_service_warning(
+        error,
+        message="AI 叙述服务不可用，已保留本地报告内容。",
+        default_code="AI_NARRATIVE_FAILED",
     )
 
 
@@ -397,28 +422,36 @@ def _forecast(forecast, policy: _CompletedDataMonthPolicy) -> str:
 
 def _add_narratives(
     sections: list[ReportSection], narrative: Narrative | None
-) -> tuple[list[ReportSection], int]:
+) -> tuple[list[ReportSection], int, Exception | None]:
     if narrative is None:
-        return sections, 0
+        return sections, 0, None
     results = [_with_narrative(section, narrative) for section in sections]
-    return [section for section, _ in results], sum(applied for _, applied in results)
+    first_error = next((error for _, _, error in results if error is not None), None)
+    return (
+        [section for section, _, _ in results],
+        sum(applied for _, applied, _ in results),
+        first_error,
+    )
 
 
 def _with_narrative(
     section: ReportSection, narrative: Narrative
-) -> tuple[ReportSection, bool]:
+) -> tuple[ReportSection, bool, Exception | None]:
     try:
         addition = narrative(section)
-    except Exception:
-        return section, False
+    except Exception as exc:
+        return section, False, exc
+    if addition is None:
+        return section, False, None
     if not isinstance(addition, str):
-        return section, False
+        return section, False, ValueError("invalid narrative type")
     safe_addition = _safe_paragraphs(addition)
     if not safe_addition:
-        return section, False
+        return section, False, ValueError("empty narrative")
     return (
         section.model_copy(update={"content": f"{section.content}\n\n{safe_addition}"}),
         True,
+        None,
     )
 
 
@@ -452,7 +485,7 @@ def _markdown(
     title: str,
     period: _ReportPeriod,
     sections: list[ReportSection],
-    engine: str,
+    provenance: str,
     generated_at: datetime,
 ) -> str:
     lines = [
@@ -465,15 +498,25 @@ def _markdown(
     ]
     for section in sections:
         lines.extend((f"## {section.title}", "", section.content, ""))
-    lines.extend(("## 说明", "", _source_label(engine)))
+    lines.extend(("## 说明", "", _source_label(provenance)))
     return "\n".join(lines)
 
 
-def _source_label(engine: str) -> str:
-    if engine == "ai":
+def _source_label(provenance: str) -> str:
+    if provenance == "ai_assisted":
         return (
-            "数据来源：本地业务数据和本地规则；部分或全部章节附加了 AI 叙述。"
+            "数据来源：本地业务数据和本地规则；全部章节附加了 AI 叙述。"
             "预测与归因结果仅供经营分析参考。"
+        )
+    if provenance == "ai_partial":
+        return (
+            "数据来源：本地业务数据和本地规则；部分章节附加了 AI 叙述，"
+            "其余章节保留本地内容。预测与归因结果仅供经营分析参考。"
+        )
+    if provenance == "local_fallback":
+        return (
+            "数据来源：本地业务数据和本地规则。AI 叙述不可用，"
+            "报告已由本地业务数据和本地规则生成。预测与归因结果仅供经营分析参考。"
         )
     return "数据来源：本地业务数据和本地规则。预测与归因结果仅供经营分析参考。"
 

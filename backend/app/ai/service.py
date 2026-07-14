@@ -134,10 +134,7 @@ def get_report_narrative(session: Session) -> Callable[[ReportSection], str | No
     provider = _enabled_provider(session)
     if provider is None:
         return None
-    try:
-        client = _client_for_provider(provider)
-    except AppError:
-        return None
+    client = _client_for_provider(provider)
 
     def narrative(section: ReportSection) -> str:
         return _run(client.generate_narrative(section.title, section.content))

@@ -61,8 +61,11 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
             json={"report_type": "月报", "modules": ["overview"]},
         )
         assert report.status_code == 200
-        assert report.json()["data"]["engine"] == "ai"
-        assert "销售额" in report.json()["data"]["sections"][0]["content"]
+        report_data = report.json()["data"]
+        assert report_data["engine"] == "ai"
+        assert report_data["provenance"] == "ai_assisted"
+        assert report_data["warning"] is None
+        assert "销售额" in report_data["sections"][0]["content"]
 
         updated = api_client.put("/api/settings/ai", json=_provider_payload(api_key=""))
         assert updated.status_code == 200
@@ -75,6 +78,8 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
         assert tested.json()["data"]["status"] == "connected"
         assert queried.status_code == 200
         assert queried.json()["data"]["engine"] == "ai"
+        assert queried.json()["data"]["provenance"] == "ai"
+        assert queried.json()["data"]["warning"] is None
         assert "test-key" not in queried.text
         assert "test-key" not in api_client.get("/api/query-history").text
 
@@ -85,6 +90,8 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
         assert deleted.json()["data"] == {"configured": False, "ai_mode": "local"}
         assert local_query.status_code == 200
         assert local_query.json()["data"]["engine"] == "local"
+        assert local_query.json()["data"]["provenance"] == "local"
+        assert local_query.json()["data"]["warning"] is None
 
     app.dependency_overrides.clear()
 
@@ -128,10 +135,24 @@ def test_corrupted_encrypted_provider_falls_back_without_exposing_configuration(
         tested = api_client.post("/api/settings/ai/test", json={})
 
     assert query.status_code == 200
-    assert query.json()["data"]["engine"] == "local"
-    assert "已使用本地规则解析" in query.json()["data"]["summary"]
+    query_data = query.json()["data"]
+    assert query_data["engine"] == "local"
+    assert query_data["provenance"] == "local_fallback"
+    assert query_data["warning"] == {
+        "code": "AI_CONFIGURATION_INVALID",
+        "message": "AI 服务不可用，已切换到本地规则解析。",
+    }
     assert report.status_code == 200
-    assert report.json()["data"]["engine"] == "local"
+    report_data = report.json()["data"]
+    assert report_data["engine"] == "local"
+    assert report_data["provenance"] == "local_fallback"
+    assert report_data["warning"] == {
+        "code": "AI_CONFIGURATION_INVALID",
+        "message": "AI 叙述服务不可用，已保留本地报告内容。",
+    }
+    assert "AI 叙述不可用，报告已由本地业务数据和本地规则生成" in report_data[
+        "markdown"
+    ]
     assert tested.status_code == 400
     assert tested.json()["error"]["code"] == "AI_CONFIGURATION_INVALID"
     assert "corrupted-ciphertext" not in tested.text
@@ -153,10 +174,30 @@ def test_query_falls_back_to_local_rules_when_ai_call_fails(db_session):
         result = api_client.post(
             "/api/query", json={"question": "本月各区域销售额排名如何？"}
         )
+        report = api_client.post(
+            "/api/reports/generate",
+            json={"report_type": "月报", "modules": ["overview"]},
+        )
 
         assert saved.status_code == 200
         assert result.status_code == 200
-        assert result.json()["data"]["engine"] == "local"
-        assert "已使用本地规则解析" in result.json()["data"]["summary"]
+        data = result.json()["data"]
+        assert data["engine"] == "local"
+        assert data["provenance"] == "local_fallback"
+        assert data["warning"] == {
+            "code": "AI_BAD_RESPONSE",
+            "message": "AI 服务不可用，已切换到本地规则解析。",
+        }
+        assert "test-key" not in result.text
+        assert "8091" not in result.text
+        report_data = report.json()["data"]
+        assert report_data["engine"] == "local"
+        assert report_data["provenance"] == "local_fallback"
+        assert report_data["warning"] == {
+            "code": "AI_BAD_RESPONSE",
+            "message": "AI 叙述服务不可用，已保留本地报告内容。",
+        }
+        assert "test-key" not in report.text
+        assert "8091" not in report.text
 
     app.dependency_overrides.clear()

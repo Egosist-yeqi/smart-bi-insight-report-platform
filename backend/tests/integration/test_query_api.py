@@ -34,6 +34,8 @@ def test_query_api_runs_local_intent_against_mysql(api_client):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["engine"] == "local"
+    assert data["provenance"] == "local"
+    assert data["warning"] is None
     assert data["safe"] is True
     assert data["rows"][0]["product_name"]
     assert data["sql"].startswith("SELECT")

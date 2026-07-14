@@ -19,6 +19,12 @@ function chartRows(result) {
   }));
 }
 
+function provenanceText(result) {
+  if (result.provenance === 'local_fallback') return '本地回退结果已通过只读 SQL 校验。';
+  if (result.provenance === 'local') return 'AI 未启用；本地规则解析结果已通过只读 SQL 校验。';
+  return 'AI 解析结果已通过只读 SQL 校验。';
+}
+
 export default function QueryView({ question, setQuestion, submitQuestion, resource }) {
   return (
     <section className="workspace">
@@ -31,7 +37,8 @@ export default function QueryView({ question, setQuestion, submitQuestion, resou
           const result = response?.data;
           if (!result) return <div className="empty-state">输入问题后运行查询</div>;
           return <div className="query-result">
-            <div className="result-summary"><span>{result.data_period || result.query_period}</span><strong>{result.summary}</strong><small>{result.engine === 'ai' ? 'AI 解析结果已通过只读 SQL 校验。' : '本地规则解析结果已通过只读 SQL 校验。'}</small></div>
+            {result.warning ? <div className="analysis-warning" role="status"><strong>{result.warning.message}</strong><span>{result.warning.code}</span></div> : null}
+            <div className="result-summary"><span>{result.data_period || result.query_period}</span><strong>{result.summary}</strong><small>{provenanceText(result)}</small></div>
             <pre className="sql-box">{result.sql}</pre>
             <div className="actions-row"><button type="button" onClick={() => submitQuestion(question)}>重新运行</button><button type="button" onClick={() => downloadText('query-result.csv', rowsToCsv(result.rows), 'text/csv;charset=utf-8')}>导出 CSV</button></div>
           </div>;

@@ -73,9 +73,14 @@ def test_report_stays_local_when_every_narrative_callback_fails(db_session):
     )
 
     assert result.engine == "local"
+    assert result.provenance == "local_fallback"
+    assert result.warning is not None
+    assert result.warning.code == "AI_NARRATIVE_FAILED"
+    assert result.warning.message == "AI 叙述服务不可用，已保留本地报告内容。"
     assert "销售概览" in result.markdown
     assert "unavailable" not in result.markdown
     assert "部分或全部章节附加了 AI 叙述" not in result.markdown
+    assert "AI 叙述不可用，报告已由本地业务数据和本地规则生成" in result.markdown
 
 
 def test_report_marks_partial_successful_narrative_as_ai_assisted(db_session):
@@ -88,9 +93,11 @@ def test_report_marks_partial_successful_narrative_as_ai_assisted(db_session):
     )
 
     assert result.engine == "ai"
+    assert result.provenance == "ai_partial"
+    assert result.warning is None
     assert "AI 补充结论" in result.sections[0].content
     assert "AI 补充结论" not in result.sections[1].content
-    assert "部分或全部章节附加了 AI 叙述" in result.markdown
+    assert "部分章节附加了 AI 叙述" in result.markdown
 
 
 def test_report_marks_successful_narrative_as_ai_assisted(db_session):
@@ -103,8 +110,10 @@ def test_report_marks_successful_narrative_as_ai_assisted(db_session):
     )
 
     assert result.engine == "ai"
+    assert result.provenance == "ai_assisted"
+    assert result.warning is None
     assert "AI 补充结论" in result.markdown
-    assert "部分或全部章节附加了 AI 叙述" in result.markdown
+    assert "全部章节附加了 AI 叙述" in result.markdown
 
 
 def test_report_period_policy_uses_the_same_data_slice_for_all_period_sections(

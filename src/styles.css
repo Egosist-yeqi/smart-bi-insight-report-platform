@@ -605,6 +605,27 @@ th {
   color: #76501c;
 }
 
+.analysis-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid #c5573c;
+  background: #fff4ef;
+  color: #873921;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.analysis-warning span {
+  flex: 0 0 auto;
+  color: #9b4b35;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
 .form-status--error {
   color: #b44325;
 }

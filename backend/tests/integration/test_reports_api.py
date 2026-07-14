@@ -39,6 +39,8 @@ def test_report_and_history_endpoints(api_client, db_session):
         "region",
     ]
     assert report_data["engine"] == "local"
+    assert report_data["provenance"] == "local"
+    assert report_data["warning"] is None
     latest_order = db_session.scalar(
         select(SalesOrder.order_date).order_by(SalesOrder.order_date.desc()).limit(1)
     )

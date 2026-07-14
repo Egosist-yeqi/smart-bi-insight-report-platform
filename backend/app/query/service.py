@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.core.warnings import ServiceWarning, ai_service_warning
 from app.db.models import QueryHistory
 from app.query.local_parser import parse_local
 from app.query.schemas import QueryIntent, QueryResult
@@ -57,7 +58,7 @@ def run_query(
     session: Session,
     question: str,
     resolver: Callable[[str], QueryIntent | dict[str, Any]] | None = None,
-    fallback_notice: str | None = None,
+    fallback_warning: ServiceWarning | None = None,
 ) -> QueryResult:
     started_at = time.perf_counter()
     engine = "ai" if resolver is not None else "local"
@@ -73,15 +74,13 @@ def run_query(
             if resolver is None or not exc.code.startswith("AI_"):
                 raise
             engine = "local"
-            fallback_notice = "AI 服务不可用，已使用本地规则解析。"
+            fallback_warning = query_fallback_warning(exc)
             resolved_intent = parse_local(question)
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
         raw_rows = _execute_business_select(session, built)
         context, rows = _extract_context(raw_rows)
         rows, answer, summary = _answer(intent, rows, context)
-        if fallback_notice:
-            summary = f"{summary}{fallback_notice}"
         chart_type = "line" if _answer_kind(intent) in {"week_over_week", "forecast"} or set(
             intent.dimensions
         ).intersection({"month", "week"}) else "bar"
@@ -100,6 +99,8 @@ def run_query(
         return QueryResult(
             intent=intent,
             engine=engine,
+            provenance="local_fallback" if fallback_warning else engine,
+            warning=fallback_warning,
             safe=True,
             sql=built.display_sql,
             rows=_json_safe(rows),
@@ -144,6 +145,13 @@ def run_query(
             message="查询执行失败，请稍后重试。",
             status_code=500,
         ) from exc
+
+
+def query_fallback_warning(error: Exception) -> ServiceWarning:
+    return ai_service_warning(
+        error,
+        message="AI 服务不可用，已切换到本地规则解析。",
+    )
 
 
 def _validated_intent(value: QueryIntent | dict[str, Any]) -> QueryIntent:

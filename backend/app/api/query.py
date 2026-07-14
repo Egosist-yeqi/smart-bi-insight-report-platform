@@ -5,7 +5,7 @@ from app.ai.service import get_intent_resolver
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.query.schemas import QueryRequest
-from app.query.service import run_query
+from app.query.service import query_fallback_warning, run_query
 
 router = APIRouter()
 
@@ -18,12 +18,12 @@ def query(
 ) -> dict:
     try:
         resolver = get_intent_resolver(session)
-        fallback_notice = None
-    except AppError:
+        fallback_warning = None
+    except AppError as exc:
         resolver = None
-        fallback_notice = "AI 配置不可用，已使用本地规则解析。"
+        fallback_warning = query_fallback_warning(exc)
     result = run_query(
-        session, payload.question, resolver=resolver, fallback_notice=fallback_notice
+        session, payload.question, resolver=resolver, fallback_warning=fallback_warning
     )
     return {
         "data": result.model_dump(mode="json"),
