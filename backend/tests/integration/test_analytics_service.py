@@ -56,6 +56,25 @@ def test_anomalies_include_the_exact_eighteen_percent_boundary(db_session):
     assert anomaly.delta == Decimal("0.18")
 
 
+def test_anomalies_default_to_the_latest_completed_data_month(db_session):
+    db_session.add_all(
+        [
+            _order("ANCHORED-202001", date(2020, 1, 15), Decimal("100"), "数据锚点区域"),
+            _order("ANCHORED-202002", date(2020, 2, 15), Decimal("125"), "数据锚点区域"),
+        ]
+    )
+    db_session.commit()
+
+    anomalies = detect_anomalies(db_session)
+
+    assert len(anomalies.items) == 1
+    anomaly = anomalies.items[0]
+    assert anomaly.previous_value == Decimal("100")
+    assert anomaly.current_value == Decimal("125")
+    assert "2020-02" in anomaly.evidence
+    assert "2020-01" in anomaly.evidence
+
+
 def test_anomalies_exclude_partial_months_and_do_not_compare_across_gaps(db_session):
     db_session.add_all(
         [

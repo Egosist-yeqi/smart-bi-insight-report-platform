@@ -249,9 +249,14 @@ def _region_amounts(session: Session, month: date) -> dict[str, Decimal]:
 def detect_anomalies(
     session: Session, *, as_of: date | None = None
 ) -> AnomalyResult:
-    effective_as_of = as_of or date.today()
-    current_month = date(effective_as_of.year, effective_as_of.month, 1)
-    latest_month = _previous_month(current_month)
+    if as_of is None:
+        latest_order_date = session.scalar(select(func.max(SalesOrder.order_date)))
+        if latest_order_date is None:
+            return AnomalyResult(items=[])
+        latest_month = date(latest_order_date.year, latest_order_date.month, 1)
+    else:
+        current_month = date(as_of.year, as_of.month, 1)
+        latest_month = _previous_month(current_month)
     previous_month = _previous_month(latest_month)
     previous = _region_amounts(session, previous_month)
     current = _region_amounts(session, latest_month)
