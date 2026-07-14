@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,6 +31,11 @@ def test_dashboard_returns_filterable_mysql_aggregates(api_client):
     assert data["filters"]["region"] == "华东"
     assert data["regions"]
     assert data["products"]
+    assert all(
+        {"amount", "profit", "profit_rate"}.issubset(product)
+        and Decimal(product["profit_rate"]) >= 0
+        for product in data["products"]
+    )
     assert len(data["trend"]) == 18
 
 

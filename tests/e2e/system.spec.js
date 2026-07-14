@@ -16,6 +16,8 @@ test.describe.serial('full-stack BI acceptance', () => {
     await openView(page, '仪表盘');
     await expect(page.getByText('销售额', { exact: true })).toBeVisible();
     await expect(page.locator('.metric-card').first().locator('strong')).toContainText(/¥|￥/);
+    await expect(page.locator('.contribution-item').first()).not.toContainText(/NaN|undefined/);
+    await expect(page.locator('.line-chart .chart-label')).toHaveCount(7);
     await page.screenshot({ path: qaPath('full-stack-dashboard.png'), fullPage: true });
 
     const regionFilter = page.getByLabel('区域');
@@ -80,6 +82,9 @@ test.describe.serial('full-stack BI acceptance', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await expect(page.getByText('MySQL 正常')).toBeVisible();
+    await expect(page.locator('.topbar')).toBeInViewport();
+    await expect(page.locator('.nav-item')).toHaveCount(6);
+    await expect(page.locator('.nav-list')).toHaveCSS('overflow-x', 'auto');
     await page.getByRole('button', { name: question, exact: true }).click();
     await expect(page.locator('.sql-box')).toContainText('SELECT');
     await page.screenshot({ path: qaPath('full-stack-mobile-query.png'), fullPage: true });

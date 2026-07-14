@@ -663,6 +663,40 @@ button:disabled {
     padding: 16px;
   }
 
+  .sidebar {
+    position: sticky;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px 12px;
+    padding: 10px 16px;
+  }
+
+  .brand {
+    gap: 8px;
+    min-height: 40px;
+  }
+
+  .brand__mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .sidebar-note {
+    min-width: 0;
+    margin: 0;
+    gap: 2px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .sidebar-note small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .topbar h1,
   .topbar p {
     overflow-wrap: anywhere;
@@ -674,9 +708,25 @@ button:disabled {
 
   .command-bar,
   .sample-grid,
-  .metrics-row,
-  .nav-list {
+  .metrics-row {
     grid-template-columns: 1fr;
+  }
+
+  .nav-list {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 36px;
+    padding: 0 11px;
+    white-space: nowrap;
   }
 
   .bar-row {
@@ -689,5 +739,9 @@ button:disabled {
 
   table {
     min-width: 760px;
+  }
+
+  .chart-label--desktop-only {
+    display: none;
   }
 }

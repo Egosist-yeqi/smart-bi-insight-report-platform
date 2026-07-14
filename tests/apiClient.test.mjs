@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiClient } from '../src/lib/apiClient.js';
 import { createDownloadBlob, rowsToCsv, sanitizeCsvCell } from '../src/lib/downloads.js';
+import { formatCurrency, formatDelta, formatNumber, formatPercent } from '../src/lib/formatters.js';
 
 test('API client unwraps data and preserves request id', async () => {
   const client = createApiClient(async () => new Response(JSON.stringify({
@@ -47,4 +48,12 @@ test('download blobs include a UTF-8 BOM', async () => {
   assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
   assert.equal(new TextDecoder().decode(bytes), '中文内容');
   assert.equal(blob.type, 'text/csv;charset=utf-8');
+});
+
+test('numeric formatters never render NaN or undefined values', () => {
+  for (const value of [undefined, null, Number.NaN, 'not-a-number']) {
+    for (const formatted of [formatCurrency(value), formatNumber(value), formatPercent(value), formatDelta(value)]) {
+      assert.doesNotMatch(formatted, /NaN|undefined/);
+    }
+  }
 });
