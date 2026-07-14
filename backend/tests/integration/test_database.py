@@ -53,7 +53,7 @@ def test_seed_upgrades_obsolete_profit_margin_to_quantity_idempotently(db_sessio
         select(MetricDefinition).order_by(MetricDefinition.metric_code)
     ).all()
 
-    assert upgraded.metrics_inserted == 1
+    assert upgraded.metrics_inserted == 0
     assert repeated.metrics_inserted == 0
     assert len(metrics) == 5
     assert {metric.metric_code for metric in metrics} == {
@@ -65,6 +65,29 @@ def test_seed_upgrades_obsolete_profit_margin_to_quantity_idempotently(db_sessio
     }
     quantity = next(metric for metric in metrics if metric.metric_code == "quantity")
     assert quantity.formula == "SUM(quantity)"
+
+
+def test_seed_preserves_a_custom_profit_margin_metric(db_session):
+    db_session.add(
+        MetricDefinition(
+            metric_name="自定义毛利率",
+            metric_code="profit_margin",
+            formula="AVG(profit / amount)",
+            description="用户自定义指标",
+        )
+    )
+    db_session.commit()
+
+    seed_database(db_session)
+
+    custom = db_session.scalar(
+        select(MetricDefinition).where(
+            MetricDefinition.metric_code == "profit_margin"
+        )
+    )
+    assert custom is not None
+    assert custom.metric_name == "自定义毛利率"
+    assert custom.formula == "AVG(profit / amount)"
 
 
 def test_seed_covers_required_date_and_dimensions(db_session):

@@ -227,7 +227,7 @@ def test_connection_uses_current_form_with_saved_key_without_mutating_saved_conf
         monkeypatch.setattr("app.ai.service.OpenAICompatibleClient", RecordingClient)
         current_form = {
             "provider_name": "Current Form Provider",
-            "base_url": "https://current-form.example/custom-v1",
+            "base_url": "http://mock-llm:8090/v1",
             "api_key": "",
             "model": "current-form-model",
             "timeout_seconds": 17,
@@ -247,7 +247,7 @@ def test_connection_uses_current_form_with_saved_key_without_mutating_saved_conf
         "allow_private_network": False,
     }
     assert captured == {
-        "base_url": "https://current-form.example/custom-v1",
+        "base_url": "http://mock-llm:8090/v1",
         "api_key": "test-key",
         "model": "current-form-model",
         "timeout_seconds": 17,
@@ -265,6 +265,29 @@ def test_connection_uses_current_form_with_saved_key_without_mutating_saved_conf
         stored.allow_private_network,
     ) == saved_values
     assert "test-key" not in response.text
+    app.dependency_overrides.clear()
+
+
+def test_blank_key_cannot_be_reused_for_a_different_base_url(db_session):
+    app = create_app()
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        changed = _provider_payload(api_key="")
+        changed["base_url"] = "https://different-provider.example/v1"
+
+        save_response = api_client.put("/api/settings/ai", json=changed)
+        test_response = api_client.post("/api/settings/ai/test", json=changed)
+
+    assert save_response.status_code == 400
+    assert save_response.json()["error"]["code"] == "AI_API_KEY_REQUIRED"
+    assert test_response.status_code == 400
+    assert test_response.json()["error"]["code"] == "AI_API_KEY_REQUIRED"
+    assert db_session.get(AIProviderConfig, 1).base_url == "http://mock-llm:8090/v1"
     app.dependency_overrides.clear()
 
 

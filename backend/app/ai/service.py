@@ -64,6 +64,8 @@ def save_provider(session: Session, payload: AIProviderInput) -> AIProviderView:
         )
         session.add(provider)
     else:
+        if not supplied_key and not _same_base_url(payload.base_url, provider.base_url):
+            raise AIProviderKeyRequiredError()
         provider.provider_name = payload.provider_name
         provider.base_url = payload.base_url
         provider.model = payload.model
@@ -159,6 +161,8 @@ def _client_for_test(
     if not api_key:
         if provider is None:
             raise AIProviderKeyRequiredError()
+        if not _same_base_url(base_url, provider.base_url):
+            raise AIProviderKeyRequiredError()
         api_key = _provider_api_key(provider)
     return (
         OpenAICompatibleClient(
@@ -193,6 +197,10 @@ def _provider_api_key(provider: AIProviderConfig) -> str:
         )
     except AppError:
         raise AIConfigurationError() from None
+
+
+def _same_base_url(left: object, right: object) -> bool:
+    return str(left).rstrip("/") == str(right).rstrip("/")
 
 
 def _provider_view(provider: AIProviderConfig) -> AIProviderView:

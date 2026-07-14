@@ -32,7 +32,10 @@ METRICS = (
     ("客单价", "average_order_value", "SUM(amount) / COUNT(*)", "每笔订单的平均销售金额"),
     ("毛利", "profit", "SUM(profit)", "指定范围内的毛利总和"),
 )
-OBSOLETE_METRIC_CODES = {"profit_margin"}
+LEGACY_PROFIT_MARGIN = (
+    "毛利率",
+    "SUM(profit) / SUM(amount)",
+)
 
 REPORT_TEMPLATES = (
     ("周度经营报告", "weekly", ["overview", "region", "ranking", "anomaly"]),
@@ -114,10 +117,19 @@ def _seed_metrics(session: Session) -> int:
         metric.metric_code: metric
         for metric in session.scalars(select(MetricDefinition))
     }
-    for code in OBSOLETE_METRIC_CODES:
-        obsolete = existing_metrics.pop(code, None)
-        if obsolete is not None:
-            session.delete(obsolete)
+    legacy_metric = existing_metrics.get("profit_margin")
+    if (
+        "quantity" not in existing_metrics
+        and legacy_metric is not None
+        and (legacy_metric.metric_name, legacy_metric.formula) == LEGACY_PROFIT_MARGIN
+    ):
+        quantity = next(metric for metric in METRICS if metric[1] == "quantity")
+        legacy_metric.metric_name = quantity[0]
+        legacy_metric.metric_code = quantity[1]
+        legacy_metric.formula = quantity[2]
+        legacy_metric.description = quantity[3]
+        existing_metrics.pop("profit_margin")
+        existing_metrics["quantity"] = legacy_metric
 
     metrics = [
         MetricDefinition(
