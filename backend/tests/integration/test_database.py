@@ -30,20 +30,25 @@ def test_seed_creates_exactly_540_orders_and_is_idempotent(db_session):
 
 def test_seed_upgrades_obsolete_profit_margin_to_quantity_idempotently(db_session):
     legacy_metrics = (
-        ("销售额", "sales_amount", "SUM(amount)"),
-        ("订单量", "order_count", "COUNT(*)"),
-        ("客单价", "average_order_value", "SUM(amount) / COUNT(*)"),
-        ("毛利", "profit", "SUM(profit)"),
-        ("毛利率", "profit_margin", "SUM(profit) / SUM(amount)"),
+        ("销售额", "sales_amount", "SUM(amount)", "旧版种子指标"),
+        ("订单量", "order_count", "COUNT(*)", "旧版种子指标"),
+        ("客单价", "average_order_value", "SUM(amount) / COUNT(*)", "旧版种子指标"),
+        ("毛利", "profit", "SUM(profit)", "旧版种子指标"),
+        (
+            "毛利率",
+            "profit_margin",
+            "SUM(profit) / SUM(amount)",
+            "毛利占销售额的比例",
+        ),
     )
     db_session.add_all(
         MetricDefinition(
             metric_name=name,
             metric_code=code,
             formula=formula,
-            description="旧版种子指标",
+            description=description,
         )
-        for name, code, formula in legacy_metrics
+        for name, code, formula, description in legacy_metrics
     )
     db_session.commit()
 
@@ -70,9 +75,9 @@ def test_seed_upgrades_obsolete_profit_margin_to_quantity_idempotently(db_sessio
 def test_seed_preserves_a_custom_profit_margin_metric(db_session):
     db_session.add(
         MetricDefinition(
-            metric_name="自定义毛利率",
+            metric_name="毛利率",
             metric_code="profit_margin",
-            formula="AVG(profit / amount)",
+            formula="SUM(profit) / SUM(amount)",
             description="用户自定义指标",
         )
     )
@@ -86,8 +91,9 @@ def test_seed_preserves_a_custom_profit_margin_metric(db_session):
         )
     )
     assert custom is not None
-    assert custom.metric_name == "自定义毛利率"
-    assert custom.formula == "AVG(profit / amount)"
+    assert custom.metric_name == "毛利率"
+    assert custom.formula == "SUM(profit) / SUM(amount)"
+    assert custom.description == "用户自定义指标"
 
 
 def test_seed_covers_required_date_and_dimensions(db_session):

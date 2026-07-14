@@ -35,6 +35,7 @@ METRICS = (
 LEGACY_PROFIT_MARGIN = (
     "毛利率",
     "SUM(profit) / SUM(amount)",
+    "毛利占销售额的比例",
 )
 
 REPORT_TEMPLATES = (
@@ -121,7 +122,12 @@ def _seed_metrics(session: Session) -> int:
     if (
         "quantity" not in existing_metrics
         and legacy_metric is not None
-        and (legacy_metric.metric_name, legacy_metric.formula) == LEGACY_PROFIT_MARGIN
+        and (
+            legacy_metric.metric_name,
+            legacy_metric.formula,
+            legacy_metric.description,
+        )
+        == LEGACY_PROFIT_MARGIN
     ):
         quantity = next(metric for metric in METRICS if metric[1] == "quantity")
         legacy_metric.metric_name = quantity[0]
