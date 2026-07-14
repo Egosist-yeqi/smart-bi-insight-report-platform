@@ -29,6 +29,25 @@ test('API client exposes normalized server errors', async () => {
   });
 });
 
+test('health errors preserve safe database details and request id', async () => {
+  const client = createApiClient(async () => new Response(JSON.stringify({
+    error: {
+      code: 'DATABASE_UNAVAILABLE',
+      message: '数据库连接不可用。',
+      details: { app: 'up', database: 'down', seeded_orders: 0, ai_mode: 'local' },
+    },
+    request_id: 'health-request-id',
+  }), { status: 503, headers: { 'Content-Type': 'application/json' } }));
+
+  await assert.rejects(client.health(), (error) => {
+    assert.equal(error.code, 'DATABASE_UNAVAILABLE');
+    assert.equal(error.message, '数据库连接不可用。');
+    assert.equal(error.details.database, 'down');
+    assert.equal(error.requestId, 'health-request-id');
+    return true;
+  });
+});
+
 test('CSV sanitizes formula-leading values after whitespace and preserves Chinese newlines', () => {
   assert.equal(sanitizeCsvCell(' \t=SUM(A1:A2)'), "' \t=SUM(A1:A2)");
   assert.equal(sanitizeCsvCell('+1'), "'+1");

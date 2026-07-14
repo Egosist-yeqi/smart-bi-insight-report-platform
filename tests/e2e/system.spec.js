@@ -90,3 +90,23 @@ test.describe.serial('full-stack BI acceptance', () => {
     await page.screenshot({ path: qaPath('full-stack-mobile-query.png'), fullPage: true });
   });
 });
+
+test('shows a database outage reported by the health endpoint', async ({ page }) => {
+  await page.route('**/api/health', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: {
+        code: 'DATABASE_UNAVAILABLE',
+        message: '数据库连接不可用。',
+        details: { app: 'up', database: 'down', seeded_orders: 0, ai_mode: 'local' },
+      },
+      request_id: 'health-browser-test',
+    }),
+  }));
+
+  await page.goto('/');
+
+  await expect(page.getByText('MySQL 异常')).toBeVisible();
+  await expect(page.getByText('数据库连接不可用。')).toBeVisible();
+});

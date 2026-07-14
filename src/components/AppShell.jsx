@@ -9,6 +9,16 @@ function statusText(healthResource, providerResource) {
     return { database: '服务检查中', analysis: '分析状态检查中', detail: '正在连接后端服务' };
   }
   if (healthResource.error) {
+    if (
+      healthResource.error.code === 'DATABASE_UNAVAILABLE'
+      || healthResource.error.details?.database === 'down'
+    ) {
+      return {
+        database: 'MySQL 异常',
+        analysis: '分析服务受限',
+        detail: healthResource.error.message || '数据库连接不可用。',
+      };
+    }
     return { database: '服务不可用', analysis: '健康检查失败', detail: healthResource.error.message || '无法连接到后端服务' };
   }
   if (!health) {

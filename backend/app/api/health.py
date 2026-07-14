@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select, text
 
+from app.core.errors import AppError
 from app.db.models import SalesOrder
 from app.db.session import get_session
 
@@ -32,10 +33,23 @@ def seeded_order_count() -> int:
 
 @router.get("/api/health")
 def health(request: Request) -> dict:
+    database = database_status()
+    if database != "up":
+        raise AppError(
+            code="DATABASE_UNAVAILABLE",
+            message="数据库连接不可用。",
+            status_code=503,
+            details={
+                "app": "up",
+                "database": "down",
+                "seeded_orders": 0,
+                "ai_mode": "local",
+            },
+        )
     return {
         "data": {
             "app": "up",
-            "database": database_status(),
+            "database": database,
             "seeded_orders": seeded_order_count(),
             "ai_mode": "local",
         },
