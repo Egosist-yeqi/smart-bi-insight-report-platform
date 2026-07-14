@@ -21,12 +21,19 @@ services:
       APP_ENV: test
       DATABASE_URL: mysql+pymysql://smart_bi_test:test_only_password@mysql:3306/smart_bi_test
       APP_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-      FRONTEND_ORIGIN: http://localhost:8080
+      FRONTEND_ORIGIN: http://127.0.0.1:8081
       QUERY_TIMEOUT_SECONDS: 5
       AI_DEFAULT_TIMEOUT_SECONDS: 30
     depends_on:
       mysql:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   mock-llm:
     build:

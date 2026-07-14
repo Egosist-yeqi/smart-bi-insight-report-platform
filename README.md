@@ -64,11 +64,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\reset.ps1 -ConfirmReset
 ```
 
-完整测试使用独立的固定 `-test` Compose 项目、独立 MySQL 数据卷和仅供测试的 `mock-llm`，没有宿主机端口映射，也不会读取或修改正常项目的数据库、卷或 AI 配置。它执行 Alembic、后端 Pytest、前端测试和构建；无论成功、部分启动失败还是测试失败，都会清理整个测试项目及其测试卷。若缺少 `node_modules` 或 Vite 工具，脚本会先按 `package-lock.json` 运行 `npm.cmd ci`：
+完整测试使用独立的固定 `-test` Compose 项目、独立 MySQL 数据卷和仅供测试的 `mock-llm`，不会读取或修改正常项目的数据库、卷或 AI 配置。测试期间仅将测试后端映射到 `127.0.0.1:8001`，再由 Playwright 临时启动 `127.0.0.1:8081` 的 Vite 前端；不会占用正常应用的 `8080`。它依次执行 Alembic、后端 Pytest、前端测试、Vite 构建和 Chrome 端到端验收；无论成功、部分启动失败还是测试失败，都会清理整个测试项目及其测试卷。若缺少 `node_modules` 或前端工具，脚本会先按 `package-lock.json` 运行 `npm.cmd ci`：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
+
+端到端测试使用已安装的 Chrome 通道，不下载额外浏览器。默认地址为 `http://127.0.0.1:8081`；需要指向已启动的替代测试环境时，可设置 `PLAYWRIGHT_BASE_URL`，并保证该环境与测试数据库隔离。
 
 ### 本地规则模式和自有 AI API
 
