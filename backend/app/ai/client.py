@@ -4,9 +4,10 @@ import json
 import socket
 from collections import Counter
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from re import compile as re_compile
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 
 import httpx
 from pydantic import ValidationError
@@ -20,6 +21,25 @@ MAX_RESPONSE_BYTES = 1_048_576
 MAX_REDIRECTS = 5
 NUMERIC_TOKEN = re_compile(r"\d[\d,]*(?:\.\d+)?%?")
 DNSResolver = Callable[[str, int], Awaitable[set[str]]]
+
+
+@dataclass(frozen=True)
+class _PinnedEndpoint:
+    origin: tuple[str, str, int]
+    hostname: str
+    address: str
+    host_header: str
+
+    def connection_url(self, logical_url: str) -> str:
+        parsed = _safe_url(logical_url)
+        if _origin_from_parsed(parsed) != self.origin:
+            raise AIClientError(
+                "AI_SSRF_BLOCKED", "AI 服务重定向跨越了服务源。", status_code=400
+            )
+        address = f"[{self.address}]" if ":" in self.address else self.address
+        if parsed.port is not None:
+            address = f"{address}:{parsed.port}"
+        return urlunsplit((parsed.scheme, address, parsed.path, parsed.query, ""))
 
 
 class AIClientError(AppError):
@@ -102,30 +122,33 @@ class OpenAICompatibleClient:
 
     async def _completion(self, messages: list[dict[str, str]]) -> str:
         try:
+            url = f"{self.base_url}/chat/completions"
+            endpoint = await self._resolve_endpoint(url)
             async with httpx.AsyncClient(
                 timeout=self._timeout,
                 verify=True,
                 follow_redirects=False,
                 transport=self._transport,
+                trust_env=False,
             ) as client:
-                url = f"{self.base_url}/chat/completions"
                 request_payload = {
                     "model": self.model,
                     "temperature": 0,
                     "messages": messages,
                 }
                 for redirect_count in range(MAX_REDIRECTS + 1):
-                    await self._assert_safe_endpoint(url)
                     async with client.stream(
                         "POST",
-                        url,
-                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        endpoint.connection_url(url),
+                        headers={
+                            "Authorization": f"Bearer {self._api_key}",
+                            "Host": endpoint.host_header,
+                        },
                         json=request_payload,
+                        extensions={"sni_hostname": endpoint.hostname},
                     ) as response:
                         if response.is_redirect:
-                            url = await self._validated_redirect_url(
-                                response, url, redirect_count
-                            )
+                            url = self._validated_redirect_url(response, url, redirect_count)
                             continue
                         self._raise_for_status(response)
                         self._validate_content_length(response)
@@ -149,7 +172,7 @@ class OpenAICompatibleClient:
             raise AIClientError("AI_BAD_RESPONSE", "AI 返回格式不兼容。")
         return content
 
-    async def _validated_redirect_url(
+    def _validated_redirect_url(
         self, response: httpx.Response, current_url: str, redirect_count: int
     ) -> str:
         if redirect_count >= MAX_REDIRECTS:
@@ -158,27 +181,42 @@ class OpenAICompatibleClient:
         if not location:
             raise AIClientError("AI_BAD_RESPONSE", "AI 服务重定向地址无效。")
         target_url = urljoin(current_url, location)
-        await self._assert_safe_endpoint(target_url)
-        if _origin(target_url) != _origin(current_url):
-            raise AIClientError("AI_BAD_RESPONSE", "AI 服务重定向跨越了服务源。")
+        target = _safe_url(target_url)
+        current = _safe_url(current_url)
+        if _origin_from_parsed(target) != _origin_from_parsed(current):
+            raise AIClientError(
+                "AI_SSRF_BLOCKED", "AI 服务重定向跨越了服务源。", status_code=400
+            )
         return target_url
 
-    async def _assert_safe_endpoint(self, url: str) -> None:
-        parsed = urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise AIClientError("AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400)
+    async def _resolve_endpoint(self, url: str) -> _PinnedEndpoint:
+        parsed = _safe_url(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
         try:
-            addresses = await self._dns_resolver(
-                parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
-            )
+            addresses = await self._dns_resolver(parsed.hostname, port)
         except OSError as exc:
             raise AIClientError("AI_BAD_RESPONSE", "AI 服务地址无法解析。") from exc
         if not addresses:
             raise AIClientError("AI_BAD_RESPONSE", "AI 服务地址无法解析。")
+        try:
+            parsed_addresses = {ipaddress.ip_address(address) for address in addresses}
+        except ValueError as exc:
+            raise AIClientError("AI_BAD_RESPONSE", "AI 服务地址无法解析。") from exc
         if not self.allow_private_network and any(
-            not ipaddress.ip_address(address).is_global for address in addresses
+            not address.is_global for address in parsed_addresses
         ):
             raise AIClientError("AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400)
+        selected = min(parsed_addresses, key=lambda address: (address.version, int(address)))
+        hostname = parsed.hostname
+        host_header = f"[{hostname}]" if ":" in hostname else hostname
+        if parsed.port is not None:
+            host_header = f"{host_header}:{parsed.port}"
+        return _PinnedEndpoint(
+            origin=_origin_from_parsed(parsed),
+            hostname=hostname,
+            address=str(selected),
+            host_header=host_header,
+        )
 
     @staticmethod
     async def _read_limited_body(response: httpx.Response) -> bytes:
@@ -228,10 +266,28 @@ async def _resolve_all_addresses(hostname: str, port: int) -> set[str]:
     return await asyncio.to_thread(resolve)
 
 
-def _origin(url: str) -> tuple[str, str, int]:
-    parsed = urlsplit(url)
+def _origin_from_parsed(parsed: SplitResult) -> tuple[str, str, int]:
     return (
         parsed.scheme,
         parsed.hostname or "",
         parsed.port or (443 if parsed.scheme == "https" else 80),
     )
+
+
+def _safe_url(url: str) -> SplitResult:
+    parsed = urlsplit(url)
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise AIClientError(
+            "AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400
+        ) from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise AIClientError("AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400)
+    return parsed

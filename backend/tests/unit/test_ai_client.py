@@ -11,7 +11,9 @@ async def _global_resolver(_hostname: str, _port: int) -> set[str]:
 
 
 def _chat_completion(request: httpx.Request) -> httpx.Response:
-    assert request.url == "https://provider.example/v1/chat/completions"
+    assert request.url == "https://8.8.8.8/v1/chat/completions"
+    assert request.headers["host"] == "provider.example"
+    assert request.extensions["sni_hostname"] == "provider.example"
     assert request.headers["authorization"] == "Bearer test-client-key"
     return httpx.Response(
         200,
@@ -126,6 +128,58 @@ async def test_client_blocks_private_networks_without_explicit_opt_in():
 
 
 @pytest.mark.asyncio
+async def test_client_validates_every_resolved_address_before_connecting():
+    async def mixed_resolver(_hostname: str, _port: int) -> set[str]:
+        return {"8.8.8.8", "127.0.0.1"}
+
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("unsafe mixed DNS result reached transport")
+        ),
+        dns_resolver=mixed_resolver,
+    )
+
+    with pytest.raises(AIClientError) as error:
+        await client.resolve_intent("任何问题")
+
+    assert error.value.code == "AI_SSRF_BLOCKED"
+
+
+@pytest.mark.asyncio
+async def test_client_pins_the_validated_address_without_a_second_dns_lookup():
+    resolver_calls = 0
+
+    async def rebinding_resolver(_hostname: str, _port: int) -> set[str]:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        return {"8.8.8.8"} if resolver_calls == 1 else {"127.0.0.1"}
+
+    def assert_pinned_connection(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "8.8.8.8"
+        assert request.headers["host"] == "provider.example"
+        assert request.extensions["sni_hostname"] == "provider.example"
+        return _any_url_chat_completion(request)
+
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(assert_pinned_connection),
+        dns_resolver=rebinding_resolver,
+    )
+
+    intent = await client.resolve_intent("任何问题")
+
+    assert intent.metric == "amount"
+    assert resolver_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_client_allows_private_mock_only_when_explicitly_opted_in():
     async def private_resolver(_hostname: str, _port: int) -> set[str]:
         return {"172.20.0.4"}
@@ -171,6 +225,39 @@ async def test_client_revalidates_redirects_and_never_forwards_cross_origin_cred
     assert error.value.code == "AI_SSRF_BLOCKED"
     assert len(calls) == 1
     assert calls[0].headers["authorization"] == "Bearer test-client-key"
+
+
+@pytest.mark.asyncio
+async def test_client_reuses_the_pinned_address_for_same_origin_redirects():
+    resolver_calls = 0
+    requests = []
+
+    async def rebinding_resolver(_hostname: str, _port: int) -> set[str]:
+        nonlocal resolver_calls
+        resolver_calls += 1
+        return {"8.8.8.8"} if resolver_calls == 1 else {"127.0.0.1"}
+
+    def same_origin_redirect(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(307, headers={"Location": "/v1/retry"})
+        return _any_url_chat_completion(request)
+
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(same_origin_redirect),
+        dns_resolver=rebinding_resolver,
+    )
+
+    intent = await client.resolve_intent("任何问题")
+
+    assert intent.metric == "amount"
+    assert resolver_calls == 1
+    assert [request.url.host for request in requests] == ["8.8.8.8", "8.8.8.8"]
+    assert all(request.headers["host"] == "provider.example" for request in requests)
 
 
 @pytest.mark.asyncio
