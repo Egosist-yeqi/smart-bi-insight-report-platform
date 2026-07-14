@@ -71,7 +71,9 @@ def test_ai_settings_are_masked_and_drive_query(db_session):
         assert updated.status_code == 200
         assert db_session.get(AIProviderConfig, 1).encrypted_api_key == encrypted_api_key
 
-        tested = api_client.post("/api/settings/ai/test", json={})
+        tested = api_client.post(
+            "/api/settings/ai/test", json=_provider_payload(api_key="")
+        )
         queried = api_client.post("/api/query", json={"question": "本月各区域销售额排名如何？"})
 
         assert tested.status_code == 200
@@ -132,7 +134,9 @@ def test_corrupted_encrypted_provider_falls_back_without_exposing_configuration(
         report = api_client.post(
             "/api/reports/generate", json={"report_type": "月报", "modules": ["overview"]}
         )
-        tested = api_client.post("/api/settings/ai/test", json={})
+        tested = api_client.post(
+            "/api/settings/ai/test", json=_provider_payload(api_key="")
+        )
 
     assert query.status_code == 200
     query_data = query.json()["data"]
@@ -156,6 +160,98 @@ def test_corrupted_encrypted_provider_falls_back_without_exposing_configuration(
     assert tested.status_code == 400
     assert tested.json()["error"]["code"] == "AI_CONFIGURATION_INVALID"
     assert "corrupted-ciphertext" not in tested.text
+    app.dependency_overrides.clear()
+
+
+def test_connection_uses_current_form_with_saved_key_without_mutating_saved_config(
+    db_session, monkeypatch
+):
+    app = create_app()
+    captured = {}
+
+    class RecordingClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def test_connection(self):
+            return None
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        stored = db_session.get(AIProviderConfig, 1)
+        assert stored is not None
+        encrypted_api_key = stored.encrypted_api_key
+        saved_values = (
+            stored.provider_name,
+            stored.base_url,
+            stored.model,
+            stored.timeout_seconds,
+            stored.enabled,
+            stored.allow_private_network,
+        )
+        monkeypatch.setattr("app.ai.service.OpenAICompatibleClient", RecordingClient)
+        current_form = {
+            "provider_name": "Current Form Provider",
+            "base_url": "https://current-form.example/custom-v1",
+            "api_key": "",
+            "model": "current-form-model",
+            "timeout_seconds": 17,
+            "enabled": False,
+            "allow_private_network": False,
+        }
+
+        response = api_client.post("/api/settings/ai/test", json=current_form)
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "status": "connected",
+        "provider": "Current Form Provider",
+        "model": "current-form-model",
+        "latency_ms": response.json()["data"]["latency_ms"],
+        "enabled": False,
+        "allow_private_network": False,
+    }
+    assert captured == {
+        "base_url": "https://current-form.example/custom-v1",
+        "api_key": "test-key",
+        "model": "current-form-model",
+        "timeout_seconds": 17,
+        "allow_private_network": False,
+    }
+    stored = db_session.get(AIProviderConfig, 1)
+    assert stored is not None
+    assert stored.encrypted_api_key == encrypted_api_key
+    assert (
+        stored.provider_name,
+        stored.base_url,
+        stored.model,
+        stored.timeout_seconds,
+        stored.enabled,
+        stored.allow_private_network,
+    ) == saved_values
+    assert "test-key" not in response.text
+    app.dependency_overrides.clear()
+
+
+def test_connection_test_rejects_an_empty_payload_instead_of_using_stale_fields(
+    db_session,
+):
+    app = create_app()
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        response = api_client.post("/api/settings/ai/test", json={})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     app.dependency_overrides.clear()
 
 

@@ -64,7 +64,19 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(page.getByText('te...ey')).toBeVisible();
     await expect(page.locator('.config-grid')).not.toContainText('test-key');
 
+    const connectionRequest = page.waitForRequest((request) => (
+      request.url().endsWith('/api/settings/ai/test') && request.method() === 'POST'
+    ));
     await page.getByRole('button', { name: '连接测试', exact: true }).click();
+    expect((await connectionRequest).postDataJSON()).toEqual({
+      provider_name: 'Mock LLM',
+      base_url: 'http://mock-llm:8090/v1',
+      api_key: '',
+      model: 'mock-model',
+      timeout_seconds: 30,
+      enabled: true,
+      allow_private_network: true,
+    });
     await expect(page.getByText(/已连接 Mock LLM \/ mock-model/)).toBeVisible();
     await page.screenshot({ path: qaPath('full-stack-ai-settings.png'), fullPage: true });
 

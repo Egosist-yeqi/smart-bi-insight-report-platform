@@ -19,29 +19,11 @@ from app.query.schemas import QueryIntent
 from app.reports.schemas import ReportSection
 
 
-class AIProviderRequiredError(AppError):
-    def __init__(self) -> None:
-        super().__init__(
-            code="AI_CONFIGURATION_REQUIRED",
-            message="请先保存 AI 服务配置。",
-            status_code=400,
-        )
-
-
 class AIProviderKeyRequiredError(AppError):
     def __init__(self) -> None:
         super().__init__(
             code="AI_API_KEY_REQUIRED",
             message="首次保存 AI 服务配置时必须提供 API 密钥。",
-            status_code=400,
-        )
-
-
-class AIProviderTestInputError(AppError):
-    def __init__(self) -> None:
-        super().__init__(
-            code="AI_TEST_CONFIGURATION_INVALID",
-            message="未保存的连接测试需要完整的 AI 服务配置。",
             status_code=400,
         )
 
@@ -115,6 +97,8 @@ def test_provider(session: Session, payload: AIProviderTestInput) -> AIConnectio
         provider=provider_name,
         model=model,
         latency_ms=max(0, round((time.perf_counter() - started_at) * 1000)),
+        enabled=payload.enabled,
+        allow_private_network=payload.allow_private_network,
     )
 
 
@@ -150,26 +134,19 @@ def _enabled_provider(session: Session) -> AIProviderConfig | None:
 def _client_for_test(
     session: Session, payload: AIProviderTestInput
 ) -> tuple[OpenAICompatibleClient, str, str]:
-    values = payload.model_dump()
-    if not any(value is not None for value in values.values()):
+    api_key = (payload.api_key or "").strip()
+    if not api_key:
         provider = session.get(AIProviderConfig, 1)
         if provider is None:
-            raise AIProviderRequiredError()
-        return _client_for_provider(provider), provider.provider_name, provider.model
-
-    required = (payload.provider_name, payload.base_url, payload.model)
-    api_key = (payload.api_key or "").strip()
-    if any(value is None for value in required) or not api_key:
-        raise AIProviderTestInputError()
+            raise AIProviderKeyRequiredError()
+        api_key = _provider_api_key(provider)
     return (
         OpenAICompatibleClient(
             base_url=payload.base_url,
             api_key=api_key,
             model=payload.model,
-            timeout_seconds=(
-                payload.timeout_seconds or get_settings().ai_default_timeout_seconds
-            ),
-            allow_private_network=bool(payload.allow_private_network),
+            timeout_seconds=payload.timeout_seconds,
+            allow_private_network=payload.allow_private_network,
         ),
         payload.provider_name,
         payload.model,
@@ -177,10 +154,7 @@ def _client_for_test(
 
 
 def _client_for_provider(provider: AIProviderConfig) -> OpenAICompatibleClient:
-    try:
-        api_key = decrypt_secret(provider.encrypted_api_key, get_settings().app_encryption_key)
-    except AppError:
-        raise AIConfigurationError() from None
+    api_key = _provider_api_key(provider)
     return OpenAICompatibleClient(
         base_url=provider.base_url,
         api_key=api_key,
@@ -188,6 +162,15 @@ def _client_for_provider(provider: AIProviderConfig) -> OpenAICompatibleClient:
         timeout_seconds=provider.timeout_seconds,
         allow_private_network=provider.allow_private_network,
     )
+
+
+def _provider_api_key(provider: AIProviderConfig) -> str:
+    try:
+        return decrypt_secret(
+            provider.encrypted_api_key, get_settings().app_encryption_key
+        )
+    except AppError:
+        raise AIConfigurationError() from None
 
 
 def _provider_view(provider: AIProviderConfig) -> AIProviderView:

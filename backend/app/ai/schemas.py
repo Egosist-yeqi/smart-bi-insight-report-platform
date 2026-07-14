@@ -56,33 +56,12 @@ class AIProviderInput(BaseModel):
         return normalize_base_url(value)
 
 
-class AIProviderTestInput(BaseModel):
-    """An empty payload tests the saved provider; a complete payload is ephemeral."""
+class AIProviderTestInput(AIProviderInput):
+    """Ephemeral connection test using every current non-secret form field."""
 
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    provider_name: str | None = Field(default=None, min_length=1, max_length=80)
-    base_url: str | None = Field(default=None, min_length=1, max_length=500)
-    api_key: str | None = Field(default=None, max_length=4096)
-    model: str | None = Field(default=None, min_length=1, max_length=160)
-    timeout_seconds: int | None = Field(default=None, ge=1, le=MAX_TIMEOUT_SECONDS)
-    enabled: bool | None = None
-    allow_private_network: bool | None = None
-
-    @field_validator("provider_name", "model")
-    @classmethod
-    def non_blank_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("Value must not be blank")
-        return stripped
-
-    @field_validator("base_url")
-    @classmethod
-    def validate_optional_base_url(cls, value: str | None) -> str | None:
-        return normalize_base_url(value) if value is not None else None
+    timeout_seconds: int = Field(ge=1, le=MAX_TIMEOUT_SECONDS)
+    enabled: bool
+    allow_private_network: bool
 
 
 class AIProviderView(BaseModel):
@@ -102,3 +81,5 @@ class AIConnectionResult(BaseModel):
     provider: str
     model: str
     latency_ms: int
+    enabled: bool
+    allow_private_network: bool

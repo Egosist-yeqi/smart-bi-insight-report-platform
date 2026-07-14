@@ -73,8 +73,12 @@ export default function ConfigView({ onProviderChange }) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function payload() {
+  function savePayload() {
     return { ...form, api_key: form.api_key || undefined };
+  }
+
+  function testPayload() {
+    return { ...form, api_key: form.api_key };
   }
 
   async function runMutation(kind, request, onSuccess) {
@@ -93,7 +97,7 @@ export default function ConfigView({ onProviderChange }) {
   }
 
   function saveSettings() {
-    const nextPayload = payload();
+    const nextPayload = savePayload();
     runMutation('save', () => apiClient.saveAi(nextPayload), () => {
       setForm((current) => ({ ...current, api_key: '' }));
       resource.reload();
@@ -102,8 +106,7 @@ export default function ConfigView({ onProviderChange }) {
   }
 
   function testSettings() {
-    const nextPayload = form.api_key ? payload() : {};
-    runMutation('test', () => apiClient.testAi(nextPayload));
+    runMutation('test', () => apiClient.testAi(testPayload()));
   }
 
   function deleteSettings() {
