@@ -11,8 +11,16 @@ def test_health_reports_app_and_database(monkeypatch):
     try:
         from app.main import create_app
 
-        monkeypatch.setattr("app.api.health.database_status", lambda: "up")
-        monkeypatch.setattr("app.api.health.seeded_order_count", lambda: 0)
+        monkeypatch.setattr(
+            "app.api.health.health_snapshot",
+            lambda: {
+                "app": "up",
+                "database": "up",
+                "seeded_orders": 0,
+                "ai_mode": "local",
+                "provider": None,
+            },
+        )
         with TestClient(create_app()) as client:
             response = client.get("/api/health")
 
@@ -22,6 +30,7 @@ def test_health_reports_app_and_database(monkeypatch):
             "database": "up",
             "seeded_orders": 0,
             "ai_mode": "local",
+            "provider": None,
         }
         assert response.json()["request_id"]
         assert get_engine.cache_info().currsize == 0
@@ -35,21 +44,26 @@ def test_health_returns_service_unavailable_envelope_when_database_is_down(
 ):
     from app.main import create_app
 
-    count_calls = 0
+    snapshot_calls = 0
 
-    def record_count_call():
-        nonlocal count_calls
-        count_calls += 1
-        return 0
+    def database_down_snapshot():
+        nonlocal snapshot_calls
+        snapshot_calls += 1
+        return {
+            "app": "up",
+            "database": "down",
+            "seeded_orders": 0,
+            "ai_mode": "local",
+            "provider": None,
+        }
 
-    monkeypatch.setattr("app.api.health.database_status", lambda: "down")
-    monkeypatch.setattr("app.api.health.seeded_order_count", record_count_call)
+    monkeypatch.setattr("app.api.health.health_snapshot", database_down_snapshot)
 
     with TestClient(create_app()) as client:
         response = client.get("/api/health", headers={"X-Request-ID": "health-test-id"})
 
     assert response.status_code == 503
-    assert count_calls == 0
+    assert snapshot_calls == 1
     assert response.headers["X-Request-ID"] == "health-test-id"
     assert response.json() == {
         "error": {
@@ -60,6 +74,7 @@ def test_health_returns_service_unavailable_envelope_when_database_is_down(
                 "database": "down",
                 "seeded_orders": 0,
                 "ai_mode": "local",
+                "provider": None,
             },
         },
         "request_id": "health-test-id",

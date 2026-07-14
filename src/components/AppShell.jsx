@@ -1,39 +1,7 @@
 import React from 'react';
+import { statusText } from '../lib/status.js';
 
 const navItems = ['智能查询', '仪表盘', '报告生成', '异常归因', '趋势预测', '系统配置'];
-
-function statusText(healthResource, providerResource) {
-  const health = healthResource.data?.data;
-  const provider = providerResource.data?.data;
-  if (healthResource.loading) {
-    return { database: '服务检查中', analysis: '分析状态检查中', detail: '正在连接后端服务' };
-  }
-  if (healthResource.error) {
-    if (
-      healthResource.error.code === 'DATABASE_UNAVAILABLE'
-      || healthResource.error.details?.database === 'down'
-    ) {
-      return {
-        database: 'MySQL 异常',
-        analysis: '分析服务受限',
-        detail: healthResource.error.message || '数据库连接不可用。',
-      };
-    }
-    return { database: '服务不可用', analysis: '健康检查失败', detail: healthResource.error.message || '无法连接到后端服务' };
-  }
-  if (!health) {
-    return { database: '服务不可用', analysis: '健康状态未知', detail: '未收到健康检查响应' };
-  }
-  const database = health.database === 'up' ? 'MySQL 正常' : 'MySQL 异常';
-  const analysis = providerResource.error
-    ? '分析服务不可用'
-    : providerResource.loading
-      ? '分析状态检查中'
-      : provider?.configured && provider.enabled
-    ? provider.provider_name
-    : '本地分析';
-  return { database, analysis, detail: `${health.seeded_orders} 条销售订单` };
-}
 
 export default function AppShell({ active, setActive, question, setQuestion, onRun, healthResource, onRefreshStatus, providerResource, children }) {
   const status = statusText(healthResource, providerResource);

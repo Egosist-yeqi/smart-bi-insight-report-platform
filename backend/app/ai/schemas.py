@@ -64,6 +64,15 @@ class AIProviderTestInput(AIProviderInput):
     allow_private_network: bool
 
 
+class SavedAIProviderTestInput(BaseModel):
+    """Empty payload selecting the complete saved provider configuration."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+AIProviderTestPayload = AIProviderTestInput | SavedAIProviderTestInput
+
+
 class AIProviderView(BaseModel):
     configured: bool
     ai_mode: str

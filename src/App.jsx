@@ -8,21 +8,22 @@ import ReportView from './views/ReportView.jsx';
 import AnomalyView from './views/AnomalyView.jsx';
 import ForecastView from './views/ForecastView.jsx';
 import ConfigView from './views/ConfigView.jsx';
+import { executeQueryRequest } from './lib/queryRequest.js';
 
 const firstQuestion = '上月华东区销售额最高的产品是什么？';
 
 export default function App() {
   const [active, setActive] = useState('智能查询');
   const [question, setQuestion] = useState(firstQuestion);
-  const [queryRequest, setQueryRequest] = useState({ question: firstQuestion });
+  const [queryRequest, setQueryRequest] = useState(null);
   const health = useAsync((signal) => apiClient.health({ signal }), []);
   const provider = useAsync((signal) => apiClient.getAi({ signal }), []);
   const history = useAsync(() => apiClient.queryHistory(), []);
   const query = useAsync(async (signal) => {
     try {
-      return await apiClient.query(queryRequest.question, { signal });
+      return await executeQueryRequest(queryRequest, apiClient.query, { signal });
     } finally {
-      if (!signal.aborted) history.reload();
+      if (queryRequest !== null && !signal.aborted) history.reload();
     }
   }, [queryRequest]);
   const runQuery = (value = question) => { if (!value.trim()) return; setActive('智能查询'); setQueryRequest({ question: value.trim() }); };

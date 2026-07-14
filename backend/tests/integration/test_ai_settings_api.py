@@ -163,6 +163,37 @@ def test_corrupted_encrypted_provider_falls_back_without_exposing_configuration(
     app.dependency_overrides.clear()
 
 
+def test_health_tracks_enabled_provider_without_decrypting_its_key(db_session):
+    seed_database(db_session)
+    app = create_app()
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        stored = db_session.get(AIProviderConfig, 1)
+        assert stored is not None
+        stored.encrypted_api_key = "corrupted-but-health-must-not-decrypt"
+        db_session.commit()
+
+        enabled = api_client.get("/api/health")
+        disabled_payload = _provider_payload(api_key="")
+        disabled_payload["enabled"] = False
+        assert api_client.put("/api/settings/ai", json=disabled_payload).status_code == 200
+        disabled = api_client.get("/api/health")
+
+    assert enabled.status_code == 200
+    assert enabled.json()["data"]["ai_mode"] == "ai"
+    assert enabled.json()["data"]["provider"] == "Mock LLM"
+    assert "corrupted-but-health-must-not-decrypt" not in enabled.text
+    assert disabled.status_code == 200
+    assert disabled.json()["data"]["ai_mode"] == "local"
+    assert disabled.json()["data"]["provider"] is None
+    app.dependency_overrides.clear()
+
+
 def test_connection_uses_current_form_with_saved_key_without_mutating_saved_config(
     db_session, monkeypatch
 ):
@@ -237,8 +268,48 @@ def test_connection_uses_current_form_with_saved_key_without_mutating_saved_conf
     app.dependency_overrides.clear()
 
 
-def test_connection_test_rejects_an_empty_payload_instead_of_using_stale_fields(
-    db_session,
+def test_connection_test_accepts_empty_payload_using_saved_config(
+    db_session, monkeypatch
+):
+    app = create_app()
+    captured = {}
+
+    class RecordingClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def test_connection(self):
+            return None
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
+        stored = db_session.get(AIProviderConfig, 1)
+        encrypted_api_key = stored.encrypted_api_key
+        monkeypatch.setattr("app.ai.service.OpenAICompatibleClient", RecordingClient)
+        response = api_client.post("/api/settings/ai/test", json={})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["provider"] == "Mock LLM"
+    assert response.json()["data"]["model"] == "mock-model"
+    assert captured == {
+        "base_url": "http://mock-llm:8090/v1",
+        "api_key": "test-key",
+        "model": "mock-model",
+        "timeout_seconds": 5,
+        "allow_private_network": True,
+    }
+    assert db_session.get(AIProviderConfig, 1).encrypted_api_key == encrypted_api_key
+    assert "test-key" not in response.text
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("payload", [{}, _provider_payload(api_key="")])
+def test_connection_test_requires_a_key_before_any_provider_is_saved(
+    db_session, payload
 ):
     app = create_app()
 
@@ -247,8 +318,24 @@ def test_connection_test_rejects_an_empty_payload_instead_of_using_stale_fields(
 
     app.dependency_overrides[get_session] = override_get_session
     with TestClient(app) as api_client:
-        assert api_client.put("/api/settings/ai", json=_provider_payload()).status_code == 200
-        response = api_client.post("/api/settings/ai/test", json={})
+        response = api_client.post("/api/settings/ai/test", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "AI_API_KEY_REQUIRED"
+    app.dependency_overrides.clear()
+
+
+def test_connection_test_rejects_a_partial_current_form(db_session):
+    app = create_app()
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        response = api_client.post(
+            "/api/settings/ai/test", json={"model": "partial-model"}
+        )
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"

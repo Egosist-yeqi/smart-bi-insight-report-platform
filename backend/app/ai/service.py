@@ -8,8 +8,9 @@ from app.ai.client import OpenAICompatibleClient
 from app.ai.schemas import (
     AIConnectionResult,
     AIProviderInput,
-    AIProviderTestInput,
+    AIProviderTestPayload,
     AIProviderView,
+    SavedAIProviderTestInput,
 )
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
@@ -88,8 +89,10 @@ def delete_provider(session: Session) -> AIProviderView:
     return AIProviderView(configured=False, ai_mode="local")
 
 
-def test_provider(session: Session, payload: AIProviderTestInput) -> AIConnectionResult:
-    client, provider_name, model = _client_for_test(session, payload)
+def test_provider(session: Session, payload: AIProviderTestPayload) -> AIConnectionResult:
+    client, provider_name, model, enabled, allow_private_network = _client_for_test(
+        session, payload
+    )
     started_at = time.perf_counter()
     _run(client.test_connection())
     return AIConnectionResult(
@@ -97,8 +100,8 @@ def test_provider(session: Session, payload: AIProviderTestInput) -> AIConnectio
         provider=provider_name,
         model=model,
         latency_ms=max(0, round((time.perf_counter() - started_at) * 1000)),
-        enabled=payload.enabled,
-        allow_private_network=payload.allow_private_network,
+        enabled=enabled,
+        allow_private_network=allow_private_network,
     )
 
 
@@ -132,24 +135,43 @@ def _enabled_provider(session: Session) -> AIProviderConfig | None:
 
 
 def _client_for_test(
-    session: Session, payload: AIProviderTestInput
-) -> tuple[OpenAICompatibleClient, str, str]:
-    api_key = (payload.api_key or "").strip()
+    session: Session, payload: AIProviderTestPayload
+) -> tuple[OpenAICompatibleClient, str, str, bool, bool]:
+    provider = session.get(AIProviderConfig, 1)
+    if isinstance(payload, SavedAIProviderTestInput):
+        if provider is None:
+            raise AIProviderKeyRequiredError()
+        provider_name = provider.provider_name
+        base_url = provider.base_url
+        model = provider.model
+        timeout_seconds = provider.timeout_seconds
+        enabled = provider.enabled
+        allow_private_network = provider.allow_private_network
+        api_key = _provider_api_key(provider)
+    else:
+        provider_name = payload.provider_name
+        base_url = payload.base_url
+        model = payload.model
+        timeout_seconds = payload.timeout_seconds
+        enabled = payload.enabled
+        allow_private_network = payload.allow_private_network
+        api_key = (payload.api_key or "").strip()
     if not api_key:
-        provider = session.get(AIProviderConfig, 1)
         if provider is None:
             raise AIProviderKeyRequiredError()
         api_key = _provider_api_key(provider)
     return (
         OpenAICompatibleClient(
-            base_url=payload.base_url,
+            base_url=base_url,
             api_key=api_key,
-            model=payload.model,
-            timeout_seconds=payload.timeout_seconds,
-            allow_private_network=payload.allow_private_network,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            allow_private_network=allow_private_network,
         ),
-        payload.provider_name,
-        payload.model,
+        provider_name,
+        model,
+        enabled,
+        allow_private_network,
     )
 
 

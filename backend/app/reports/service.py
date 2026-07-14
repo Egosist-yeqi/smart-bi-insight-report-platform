@@ -116,7 +116,7 @@ def generate_report(
     completed_month_policy = _completed_data_month_policy(session)
     anomalies = (
         detect_anomalies(
-            session, as_of=_next_month(completed_month_policy.latest_month)
+            session, today=_next_month(completed_month_policy.latest_month)
         )
         if completed_month_policy.latest_month
         else None

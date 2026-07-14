@@ -72,6 +72,55 @@ test('serves production assets, SPA fallback, and the backend through Nginx', as
   });
 });
 
+test('does not query on mount or refresh before a user runs it', async ({ page }) => {
+  let queryPosts = 0;
+  await page.route((url) => url.pathname === '/api/query', async (route) => {
+    queryPosts += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          intent: { metric: 'amount' },
+          engine: 'local',
+          provenance: 'local',
+          warning: null,
+          safe: true,
+          sql: 'SELECT 1',
+          rows: [],
+          chart_type: 'bar',
+          summary: '用户已运行查询。',
+          data_as_of: null,
+          data_period: '暂无可用数据',
+          query_period: '暂无可用数据',
+          answer: null,
+        },
+        request_id: 'explicit-query-only',
+      }),
+    });
+  });
+
+  const initialHistory = page.waitForResponse((response) => (
+    response.url().includes('/api/query-history?limit=20') && response.status() === 200
+  ));
+  await page.goto('/');
+  await initialHistory;
+  await expect(page.getByText('输入问题后运行查询')).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(queryPosts).toBe(0);
+
+  const refreshedHistory = page.waitForResponse((response) => (
+    response.url().includes('/api/query-history?limit=20') && response.status() === 200
+  ));
+  await page.reload();
+  await refreshedHistory;
+  await page.waitForTimeout(250);
+  expect(queryPosts).toBe(0);
+
+  await page.getByRole('button', { name: '运行查询', exact: true }).click();
+  await expect.poll(() => queryPosts).toBe(1);
+});
+
 test.describe.serial('full-stack BI acceptance', () => {
   test('drives dashboard, local analytics, mock AI, and local fallback', async ({ page }) => {
     await page.goto('/');
@@ -318,6 +367,7 @@ test('shows structured AI fallback for queries and reports', async ({ page }) =>
   });
 
   await page.goto('/');
+  await page.getByRole('button', { name: '运行查询', exact: true }).click();
 
   await expect(page.getByText('AI 服务不可用，已切换到本地规则解析。')).toBeVisible();
   await expect(page.getByText('AI_TIMEOUT')).toBeVisible();

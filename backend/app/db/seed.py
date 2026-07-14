@@ -27,11 +27,12 @@ PRODUCTS = (
 
 METRICS = (
     ("销售额", "sales_amount", "SUM(amount)", "指定范围内的销售金额总和"),
+    ("销售数量", "quantity", "SUM(quantity)", "指定范围内的销售数量总和"),
     ("订单量", "order_count", "COUNT(*)", "指定范围内的订单记录数"),
     ("客单价", "average_order_value", "SUM(amount) / COUNT(*)", "每笔订单的平均销售金额"),
     ("毛利", "profit", "SUM(profit)", "指定范围内的毛利总和"),
-    ("毛利率", "profit_margin", "SUM(profit) / SUM(amount)", "毛利占销售额的比例"),
 )
+OBSOLETE_METRIC_CODES = {"profit_margin"}
 
 REPORT_TEMPLATES = (
     ("周度经营报告", "weekly", ["overview", "region", "ranking", "anomaly"]),
@@ -109,7 +110,15 @@ def _seed_orders(session: Session) -> int:
 
 
 def _seed_metrics(session: Session) -> int:
-    existing_codes = set(session.scalars(select(MetricDefinition.metric_code)))
+    existing_metrics = {
+        metric.metric_code: metric
+        for metric in session.scalars(select(MetricDefinition))
+    }
+    for code in OBSOLETE_METRIC_CODES:
+        obsolete = existing_metrics.pop(code, None)
+        if obsolete is not None:
+            session.delete(obsolete)
+
     metrics = [
         MetricDefinition(
             metric_name=name,
@@ -118,7 +127,7 @@ def _seed_metrics(session: Session) -> int:
             description=description,
         )
         for name, code, formula, description in METRICS
-        if code not in existing_codes
+        if code not in existing_metrics
     ]
     session.add_all(metrics)
     return len(metrics)

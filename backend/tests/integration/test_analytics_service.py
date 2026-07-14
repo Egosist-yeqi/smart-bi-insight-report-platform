@@ -46,7 +46,7 @@ def test_anomalies_include_the_exact_eighteen_percent_boundary(db_session):
     )
     db_session.commit()
 
-    anomalies = detect_anomalies(db_session, as_of=date(2025, 4, 15))
+    anomalies = detect_anomalies(db_session, today=date(2025, 4, 15))
 
     assert len(anomalies.items) == 1
     anomaly = anomalies.items[0]
@@ -56,7 +56,7 @@ def test_anomalies_include_the_exact_eighteen_percent_boundary(db_session):
     assert anomaly.delta == Decimal("0.18")
 
 
-def test_anomalies_default_to_the_latest_completed_data_month(db_session):
+def test_anomalies_use_max_data_month_when_it_precedes_the_current_month(db_session):
     db_session.add_all(
         [
             _order("ANCHORED-202001", date(2020, 1, 15), Decimal("100"), "数据锚点区域"),
@@ -65,7 +65,7 @@ def test_anomalies_default_to_the_latest_completed_data_month(db_session):
     )
     db_session.commit()
 
-    anomalies = detect_anomalies(db_session)
+    anomalies = detect_anomalies(db_session, today=date(2020, 3, 15))
 
     assert len(anomalies.items) == 1
     anomaly = anomalies.items[0]
@@ -85,13 +85,13 @@ def test_anomalies_exclude_partial_months_and_do_not_compare_across_gaps(db_sess
     )
     db_session.commit()
 
-    as_of = date(2025, 4, 15)
-    assert detect_anomalies(db_session, as_of=as_of).items == []
+    today = date(2025, 4, 15)
+    assert detect_anomalies(db_session, today=today).items == []
 
     db_session.add(_order("GAP-202502", date(2025, 2, 1), Decimal("100"), "连续区域"))
     db_session.commit()
 
-    anomalies = detect_anomalies(db_session, as_of=as_of)
+    anomalies = detect_anomalies(db_session, today=today)
 
     assert len(anomalies.items) == 1
     anomaly = anomalies.items[0]

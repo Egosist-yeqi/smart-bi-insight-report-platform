@@ -7,6 +7,7 @@ from sqlalchemy.schema import CreateTable
 
 from app.db.models import AIProviderConfig, MetricDefinition, ReportTemplate, SalesOrder
 from app.db.seed import seed_database
+from app.query.sql_builder import METRIC_REGISTRY_CODES
 
 
 def test_seed_creates_exactly_540_orders_and_is_idempotent(db_session):
@@ -22,6 +23,48 @@ def test_seed_creates_exactly_540_orders_and_is_idempotent(db_session):
     assert second.orders_inserted == 0
     assert order_count == 540
     assert metric_count == 5
+    assert set(db_session.scalars(select(MetricDefinition.metric_code))) == set(
+        METRIC_REGISTRY_CODES.values()
+    )
+
+
+def test_seed_upgrades_obsolete_profit_margin_to_quantity_idempotently(db_session):
+    legacy_metrics = (
+        ("销售额", "sales_amount", "SUM(amount)"),
+        ("订单量", "order_count", "COUNT(*)"),
+        ("客单价", "average_order_value", "SUM(amount) / COUNT(*)"),
+        ("毛利", "profit", "SUM(profit)"),
+        ("毛利率", "profit_margin", "SUM(profit) / SUM(amount)"),
+    )
+    db_session.add_all(
+        MetricDefinition(
+            metric_name=name,
+            metric_code=code,
+            formula=formula,
+            description="旧版种子指标",
+        )
+        for name, code, formula in legacy_metrics
+    )
+    db_session.commit()
+
+    upgraded = seed_database(db_session)
+    repeated = seed_database(db_session)
+    metrics = db_session.scalars(
+        select(MetricDefinition).order_by(MetricDefinition.metric_code)
+    ).all()
+
+    assert upgraded.metrics_inserted == 1
+    assert repeated.metrics_inserted == 0
+    assert len(metrics) == 5
+    assert {metric.metric_code for metric in metrics} == {
+        "sales_amount",
+        "quantity",
+        "order_count",
+        "average_order_value",
+        "profit",
+    }
+    quantity = next(metric for metric in metrics if metric.metric_code == "quantity")
+    assert quantity.formula == "SUM(quantity)"
 
 
 def test_seed_covers_required_date_and_dimensions(db_session):

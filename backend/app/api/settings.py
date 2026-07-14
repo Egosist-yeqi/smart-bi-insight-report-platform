@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.ai.schemas import AIProviderInput, AIProviderTestInput
+from app.ai.schemas import AIProviderInput, AIProviderTestPayload
 from app.ai.service import delete_provider, get_provider_view, save_provider, test_provider
 from app.db.session import get_session
 
@@ -39,7 +39,7 @@ def remove_ai_settings(request: Request, session: Session = Depends(get_session)
 
 @router.post("/api/settings/ai/test")
 def test_ai_settings(
-    payload: AIProviderTestInput,
+    payload: AIProviderTestPayload,
     request: Request,
     session: Session = Depends(get_session),
 ) -> dict:

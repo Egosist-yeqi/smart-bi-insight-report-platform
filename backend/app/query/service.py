@@ -82,9 +82,12 @@ def run_query(
         except AppError as exc:
             if resolver is None or not exc.code.startswith("AI_"):
                 raise
-            engine = "local"
             fallback_warning = query_fallback_warning(exc)
-            resolved_intent = parse_local(question)
+            try:
+                resolved_intent = parse_local(question)
+            except AppError:
+                raise ai_fallback_unsupported_error(exc) from None
+            engine = "local"
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
         raw_rows = _execute_business_select(session, built)
@@ -160,6 +163,17 @@ def query_fallback_warning(error: Exception) -> ServiceWarning:
     return ai_service_warning(
         error,
         message="AI 服务不可用，已切换到本地规则解析。",
+    )
+
+
+def ai_fallback_unsupported_error(error: AppError) -> AppError:
+    sanitized = query_fallback_warning(error)
+    status_code = error.status_code if 400 <= error.status_code <= 599 else 502
+    return AppError(
+        code=sanitized.code,
+        message=error.message,
+        status_code=status_code,
+        details={"local_fallback": "unsupported"},
     )
 
 

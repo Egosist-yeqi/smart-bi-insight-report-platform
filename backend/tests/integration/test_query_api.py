@@ -110,23 +110,25 @@ def test_query_api_rejects_an_unavailable_registered_metric_in_one_select(
     assert history.error_code == "METRIC_NOT_AVAILABLE"
 
 
-def test_query_service_rejects_unseeded_quantity_metric_and_records_failure(db_session):
+def test_query_service_executes_registered_quantity_metric(db_session):
     seed_database(db_session)
 
-    with pytest.raises(AppError) as error:
-        run_query(
-            db_session,
-            "查询销售数量",
-            resolver=lambda _question: QueryIntent(metric="quantity"),
-        )
+    result = run_query(
+        db_session,
+        "查询销售数量",
+        resolver=lambda _question: QueryIntent(metric="quantity"),
+    )
 
     history = db_session.scalar(
         select(QueryHistory).order_by(QueryHistory.id.desc()).limit(1)
     )
-    assert error.value.code == "METRIC_NOT_AVAILABLE"
+    assert result.safe is True
+    assert result.intent.metric == "quantity"
+    assert result.rows[0]["metric_value"] > 0
+    assert "SUM(quantity) AS metric_value" in result.sql
     assert history is not None
-    assert history.status == "failed"
-    assert history.error_code == "METRIC_NOT_AVAILABLE"
+    assert history.status == "succeeded"
+    assert history.error_code is None
 
 
 def test_query_api_records_a_failed_unrecognized_question(api_client, db_session):
@@ -139,6 +141,41 @@ def test_query_api_records_a_failed_unrecognized_question(api_client, db_session
     assert history is not None
     assert history.status == "failed"
     assert history.error_code == "UNRECOGNIZED_QUESTION"
+
+
+def test_query_api_preserves_ai_error_when_local_fallback_cannot_parse(
+    api_client, db_session, monkeypatch
+):
+    question = "这是本地规则不支持的自由问题"
+
+    def failing_resolver(_question):
+        raise AppError(
+            code="AI_TIMEOUT",
+            message="AI 服务请求超时。",
+            status_code=504,
+            details={"upstream": "must-not-leak"},
+        )
+
+    monkeypatch.setattr(
+        "app.api.query.get_intent_resolver", lambda _session: failing_resolver
+    )
+
+    response = api_client.post("/api/query", json={"question": question})
+    history = db_session.scalar(
+        select(QueryHistory).where(QueryHistory.question == question)
+    )
+
+    assert response.status_code == 504
+    assert response.json()["error"] == {
+        "code": "AI_TIMEOUT",
+        "message": "AI 服务请求超时。",
+        "details": {"local_fallback": "unsupported"},
+    }
+    assert "must-not-leak" not in response.text
+    assert history is not None
+    assert history.engine == "ai"
+    assert history.status == "failed"
+    assert history.error_code == "AI_TIMEOUT"
 
 
 def test_query_api_uses_max_order_date_as_its_data_as_of_policy(api_client, db_session):
