@@ -78,7 +78,8 @@ def test_seed_preserves_a_custom_profit_margin_metric(db_session):
             metric_name="毛利率",
             metric_code="profit_margin",
             formula="SUM(profit) / SUM(amount)",
-            description="用户自定义指标",
+            description="毛利占销售额的比例",
+            enabled=False,
         )
     )
     db_session.commit()
@@ -93,7 +94,8 @@ def test_seed_preserves_a_custom_profit_margin_metric(db_session):
     assert custom is not None
     assert custom.metric_name == "毛利率"
     assert custom.formula == "SUM(profit) / SUM(amount)"
-    assert custom.description == "用户自定义指标"
+    assert custom.description == "毛利占销售额的比例"
+    assert custom.enabled is False
 
 
 def test_seed_covers_required_date_and_dimensions(db_session):

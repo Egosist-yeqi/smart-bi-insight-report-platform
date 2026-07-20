@@ -36,6 +36,7 @@ LEGACY_PROFIT_MARGIN = (
     "毛利率",
     "SUM(profit) / SUM(amount)",
     "毛利占销售额的比例",
+    True,
 )
 
 REPORT_TEMPLATES = (
@@ -126,6 +127,7 @@ def _seed_metrics(session: Session) -> int:
             legacy_metric.metric_name,
             legacy_metric.formula,
             legacy_metric.description,
+            legacy_metric.enabled,
         )
         == LEGACY_PROFIT_MARGIN
     ):
