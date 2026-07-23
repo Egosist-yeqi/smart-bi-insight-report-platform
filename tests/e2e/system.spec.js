@@ -202,6 +202,9 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(page.getByText('预测值基于已完成月度销售额趋势')).toBeVisible();
 
     await openView(page, '系统配置');
+    await expect(page.getByLabel('AI 服务类型')).toHaveValue('deepseek');
+    await expect(page.getByLabel('Base URL')).toHaveCount(0);
+    await page.getByLabel('AI 服务类型').selectOption('custom');
     await page.getByLabel('服务名称').fill('Mock LLM');
     await page.getByLabel('Base URL').fill('http://mock-llm:8090/v1');
     await page.getByLabel('模型').fill('mock-model');

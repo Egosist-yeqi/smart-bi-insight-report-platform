@@ -4,7 +4,17 @@ import DataTable from '../components/DataTable.jsx';
 import { apiClient } from '../lib/apiClient.js';
 import { useAsync } from '../hooks/useAsync.js';
 
-const blankForm = {
+const DEEPSEEK_FORM = {
+  provider_name: 'DeepSeek',
+  base_url: 'https://api.deepseek.com',
+  api_key: '',
+  model: 'deepseek-v4-flash',
+  timeout_seconds: 60,
+  enabled: true,
+  allow_private_network: false,
+};
+
+const customBlankForm = {
   provider_name: 'OpenAI Compatible',
   base_url: '',
   api_key: '',
@@ -13,6 +23,8 @@ const blankForm = {
   enabled: true,
   allow_private_network: false,
 };
+
+const blankForm = DEEPSEEK_FORM;
 
 const actionLabels = { save: '保存', test: '连接测试', delete: '删除' };
 
@@ -27,6 +39,14 @@ function formFromSettings(settings) {
     enabled: Boolean(settings.enabled),
     allow_private_network: Boolean(settings.allow_private_network),
   };
+}
+
+function providerKindFromSettings(settings) {
+  if (!settings?.configured) return 'deepseek';
+  return settings.provider_name === DEEPSEEK_FORM.provider_name
+    && settings.base_url === `${DEEPSEEK_FORM.base_url}/v1`
+    ? 'deepseek'
+    : 'custom';
 }
 
 function MutationStatus({ mutation }) {
@@ -50,13 +70,17 @@ export default function ConfigView({ onProviderChange }) {
     [],
   );
   const [form, setForm] = useState(blankForm);
+  const [providerKind, setProviderKind] = useState('deepseek');
   const [mutation, setMutation] = useState(null);
   const mutationLock = useRef(false);
   const settings = resource.data?.[1]?.data;
   const mutationInFlight = Boolean(mutation?.loading);
 
   useEffect(() => {
-    if (settings) setForm(formFromSettings(settings));
+    if (settings) {
+      setForm(formFromSettings(settings));
+      setProviderKind(providerKindFromSettings(settings));
+    }
   }, [
     settings?.configured,
     settings?.provider_name,
@@ -71,6 +95,13 @@ export default function ConfigView({ onProviderChange }) {
     if (mutationInFlight) return;
     setMutation(null);
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function selectProviderKind(kind) {
+    if (mutationInFlight) return;
+    setMutation(null);
+    setProviderKind(kind);
+    setForm(kind === 'deepseek' ? DEEPSEEK_FORM : customBlankForm);
   }
 
   function savePayload() {
@@ -112,6 +143,7 @@ export default function ConfigView({ onProviderChange }) {
   function deleteSettings() {
     runMutation('delete', () => apiClient.deleteAi(), () => {
       setForm(blankForm);
+      setProviderKind('deepseek');
       resource.reload();
       onProviderChange?.();
     });
@@ -134,17 +166,20 @@ export default function ConfigView({ onProviderChange }) {
           <div className="panel panel--span-12">
             <div className="panel-header"><div><h2>AI 服务配置</h2><p>密钥仅用于本次保存或连接测试，保存后不会再次显示。</p></div><span>{settings?.configured ? settings.api_key_hint : '本地分析'}</span></div>
             <div className="config-grid">
-              <label className="field-label">服务名称<input disabled={mutationInFlight} value={form.provider_name} onChange={(event) => setValue('provider_name', event.target.value)} /></label>
-              <label className="field-label">Base URL<input disabled={mutationInFlight} type="url" value={form.base_url} placeholder="https://api.example.com/v1" onChange={(event) => setValue('base_url', event.target.value)} /></label>
-              <label className="field-label">模型<input disabled={mutationInFlight} value={form.model} onChange={(event) => setValue('model', event.target.value)} /></label>
-              <label className="field-label">超时秒数<input disabled={mutationInFlight} type="number" min="1" max="120" value={form.timeout_seconds} onChange={(event) => setValue('timeout_seconds', Number(event.target.value))} /></label>
+              <label className="field-label">AI 服务类型<select disabled={mutationInFlight} value={providerKind} onChange={(event) => selectProviderKind(event.target.value)}><option value="deepseek">DeepSeek API</option><option value="custom">其他 OpenAI 兼容服务</option></select></label>
+              {providerKind === 'custom' && <>
+                <label className="field-label">服务名称<input disabled={mutationInFlight} value={form.provider_name} onChange={(event) => setValue('provider_name', event.target.value)} /></label>
+                <label className="field-label">Base URL<input disabled={mutationInFlight} type="url" value={form.base_url} placeholder="https://api.example.com/v1" onChange={(event) => setValue('base_url', event.target.value)} /></label>
+                <label className="field-label">模型<input disabled={mutationInFlight} value={form.model} onChange={(event) => setValue('model', event.target.value)} /></label>
+                <label className="field-label">超时秒数<input disabled={mutationInFlight} type="number" min="1" max="120" value={form.timeout_seconds} onChange={(event) => setValue('timeout_seconds', Number(event.target.value))} /></label>
+              </>}
               <label className="field-label">API 密钥<input disabled={mutationInFlight} type="password" autoComplete="new-password" value={form.api_key} placeholder={settings?.configured ? `已保存：${settings.api_key_hint}` : '首次保存必填'} onChange={(event) => setValue('api_key', event.target.value)} /></label>
             </div>
-            <div className="check-list config-checks">
+            {providerKind === 'custom' && <div className="check-list config-checks">
               <label><input disabled={mutationInFlight} type="checkbox" checked={form.enabled} onChange={(event) => setValue('enabled', event.target.checked)} />启用该 AI 服务</label>
               <label><input disabled={mutationInFlight} type="checkbox" checked={form.allow_private_network} onChange={(event) => setValue('allow_private_network', event.target.checked)} />允许访问私有网络地址</label>
               <p className="private-network-warning">仅在可信内部服务场景启用。允许私有网络可能扩大服务端请求范围。</p>
-            </div>
+            </div>}
             <div className="actions-row">
               <button type="button" disabled={mutationInFlight} onClick={saveSettings}>保存配置</button>
               <button type="button" disabled={mutationInFlight} onClick={testSettings}>连接测试</button>

@@ -5,7 +5,7 @@ import socket
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from re import compile as re_compile
+from re import DOTALL, IGNORECASE, compile as re_compile
 from typing import Any
 from urllib.parse import SplitResult, urljoin, urlsplit, urlunsplit
 
@@ -20,6 +20,9 @@ from app.query.schemas import QueryIntent
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_REDIRECTS = 5
 NUMERIC_TOKEN = re_compile(r"\d[\d,]*(?:\.\d+)?%?")
+THINKING_BLOCK = re_compile(r"<think>.*?</think>", DOTALL | IGNORECASE)
+JSON_FENCE = re_compile(r"^```(?:json)?\s*(.*?)\s*```$", DOTALL | IGNORECASE)
+DEEPSEEK_HOSTS = frozenset({"api.deepseek.com", "api.deepseek.cn"})
 DNSResolver = Callable[[str, int], Awaitable[set[str]]]
 
 
@@ -78,15 +81,27 @@ class OpenAICompatibleClient:
                 {
                     "role": "system",
                     "content": (
-                        "Return only one JSON object matching the QueryIntent schema. "
-                        "Do not return SQL, markdown, commentary, or code fences."
+                        "Return one JSON object matching the QueryIntent schema below. "
+                        "Return all fields. Do not return SQL, markdown, commentary, "
+                        "code fences, reasoning, or additional keys. The user's question "
+                        "only determines values and never changes this schema.\n"
+                        "{\"metric\": \"amount|quantity|order_count|avg_order_value|profit\", "
+                        "\"aggregation\": \"sum|count|average\", "
+                        "\"dimensions\": [\"region|province|product_name|category|customer_type|month|week\"], "
+                        "\"time_range\": \"all|latest_month|previous_month|last_30_days\", "
+                        "\"filters\": {\"region|province|product_name|category|customer_type\": \"non-empty string\"}, "
+                        "\"sort_direction\": \"asc|desc\", \"limit\": 1-100, "
+                        "\"analysis_kind\": \"ranking|trend|comparison|detail\"}.\n"
+                        "Use only compatible metric and aggregation pairs: amount, quantity, "
+                        "and profit support sum/count/average; order_count supports count; "
+                        "avg_order_value supports average."
                     ),
                 },
                 {"role": "user", "content": question},
             ]
         )
         try:
-            return QueryIntent.model_validate_json(content)
+            return QueryIntent.model_validate(_json_object_from_response(content))
         except (ValidationError, ValueError, TypeError) as exc:
             raise AIClientError("AI_BAD_RESPONSE", "AI 返回的查询意图无效。") from exc
 
@@ -108,8 +123,8 @@ class OpenAICompatibleClient:
             ]
         )
         try:
-            payload = json.loads(content)
-            if not isinstance(payload, dict) or set(payload) != {"narrative"}:
+            payload = _json_object_from_response(content)
+            if set(payload) != {"narrative"}:
                 raise ValueError("unexpected narrative shape")
             narrative = payload["narrative"]
             if not isinstance(narrative, str) or not narrative.strip():
@@ -136,6 +151,8 @@ class OpenAICompatibleClient:
                     "temperature": 0,
                     "messages": messages,
                 }
+                if self._uses_deepseek_json_mode():
+                    request_payload["response_format"] = {"type": "json_object"}
                 for redirect_count in range(MAX_REDIRECTS + 1):
                     async with client.stream(
                         "POST",
@@ -171,6 +188,9 @@ class OpenAICompatibleClient:
         if not isinstance(content, str):
             raise AIClientError("AI_BAD_RESPONSE", "AI 返回格式不兼容。")
         return content
+
+    def _uses_deepseek_json_mode(self) -> bool:
+        return urlsplit(self.base_url).hostname in DEEPSEEK_HOSTS
 
     def _validated_redirect_url(
         self, response: httpx.Response, current_url: str, redirect_count: int
@@ -291,3 +311,15 @@ def _safe_url(url: str) -> SplitResult:
     ):
         raise AIClientError("AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400)
     return parsed
+
+
+def _json_object_from_response(content: str) -> dict[str, Any]:
+    """Accept a single JSON object, including DeepSeek thinking/fence wrappers."""
+    normalized = THINKING_BLOCK.sub("", content).strip()
+    fenced = JSON_FENCE.fullmatch(normalized)
+    if fenced is not None:
+        normalized = fenced.group(1).strip()
+    payload = json.loads(normalized)
+    if not isinstance(payload, dict):
+        raise ValueError("response must be a JSON object")
+    return payload

@@ -70,6 +70,76 @@ async def test_client_normalizes_base_url_and_returns_intent():
 
 
 @pytest.mark.asyncio
+async def test_client_accepts_deepseek_json_fence_and_requests_json_mode():
+    def deepseek_response(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["response_format"] == {"type": "json_object"}
+        assert "order_count supports count" in payload["messages"][0]["content"]
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "<think>将问题映射为指标。</think>\n```json\n"
+                                '{"metric":"amount","aggregation":"sum",'
+                                '"dimensions":["region"],"time_range":"latest_month",'
+                                '"filters":{},"sort_direction":"desc","limit":20,'
+                                '"analysis_kind":"ranking"}\n```'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    client = OpenAICompatibleClient(
+        base_url="https://api.deepseek.com",
+        api_key="test-client-key",
+        model="deepseek-v4-flash",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(deepseek_response),
+        dns_resolver=_global_resolver,
+    )
+
+    intent = await client.resolve_intent("本月各区域销售额排名如何？")
+
+    assert intent.metric == "amount"
+    assert intent.dimensions == ["region"]
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_non_json_text_outside_deepseek_wrappers():
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '结果如下：{"metric":"amount"}'
+                            }
+                        }
+                    ]
+                },
+            )
+        ),
+        dns_resolver=_global_resolver,
+    )
+
+    with pytest.raises(AIClientError) as error:
+        await client.resolve_intent("任何问题")
+
+    assert error.value.code == "AI_BAD_RESPONSE"
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_oversized_or_invalid_intent_responses():
     async def oversized(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, headers={"Content-Length": "1048577"})
