@@ -4,12 +4,25 @@
 
 项目面向企业经营分析和数据决策场景，目标是构建一个支持自然语言查询、自动报告生成、异常归因、趋势预测和可视化分析的智能 BI 平台。
 
+## 30 秒开始演示
+
+Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动器会在 Docker Desktop 未运行时尝试启动它，系统就绪后自动打开 `http://localhost:8080`。
+
+首次启动需要 Docker Desktop 下载或构建镜像；之后日常启动会复用已有环境。应用启动后可直接体验本地规则模式，不需要填写任何 API Key。
+
+- [系统功能演示文档](docs/DEMO_GUIDE.md)：逐步说明在什么位置输入什么内容。
+- [演示素材包](docs/demo/README.md)：演示讲稿、问题清单和检查清单。
+- [停止系统](停止智能BI系统.cmd)：正常停止服务，保留数据库数据。
+- [API 文档](http://localhost:8080/api/docs)：系统运行后可访问。
+
 ## 文档
 
 - [需求文档](docs/PRD.md)
 - [项目 11 原始范围整理](docs/SOURCE_PROJECT_11.md)
 - [2026-07-09 开发过程文档](docs/PROCESS_2026-07-09.md)
 - [界面概念图](docs/assets/dashboard-concept.png)
+- [功能演示文档](docs/DEMO_GUIDE.md)
+- [演示素材包](docs/demo/README.md)
 
 ## Windows 本地运行
 
