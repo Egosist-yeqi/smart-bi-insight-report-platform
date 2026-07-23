@@ -30,6 +30,9 @@ const actionLabels = { save: '保存', test: '连接测试', delete: '删除' };
 
 function formFromSettings(settings) {
   if (!settings?.configured) return blankForm;
+  if (providerKindFromSettings(settings) === 'deepseek') {
+    return { ...DEEPSEEK_FORM, api_key: '', enabled: Boolean(settings.enabled) };
+  }
   return {
     provider_name: settings.provider_name || '',
     base_url: settings.base_url || '',

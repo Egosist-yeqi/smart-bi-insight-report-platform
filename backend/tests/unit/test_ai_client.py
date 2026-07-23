@@ -110,6 +110,21 @@ async def test_client_accepts_deepseek_json_fence_and_requests_json_mode():
 
 
 @pytest.mark.asyncio
+async def test_client_forces_off_private_network_for_official_deepseek_endpoint():
+    client = OpenAICompatibleClient(
+        base_url="https://api.deepseek.com",
+        api_key="test-client-key",
+        model="deepseek-v4-flash",
+        timeout_seconds=5,
+        allow_private_network=True,
+        transport=httpx.MockTransport(_any_url_chat_completion),
+        dns_resolver=_global_resolver,
+    )
+
+    assert client.allow_private_network is False
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_non_json_text_outside_deepseek_wrappers():
     client = OpenAICompatibleClient(
         base_url="https://provider.example/v1",

@@ -65,7 +65,9 @@ class OpenAICompatibleClient:
         self.base_url = normalize_base_url(base_url)
         self._api_key = api_key
         self.model = model
-        self.allow_private_network = allow_private_network
+        self.allow_private_network = (
+            allow_private_network and not self._uses_deepseek_json_mode()
+        )
         self._transport = transport
         self._dns_resolver = dns_resolver or _resolve_all_addresses
         self._timeout = httpx.Timeout(

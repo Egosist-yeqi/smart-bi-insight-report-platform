@@ -103,7 +103,9 @@ def test_provider(session: Session, payload: AIProviderTestPayload) -> AIConnect
         model=model,
         latency_ms=max(0, round((time.perf_counter() - started_at) * 1000)),
         enabled=enabled,
-        allow_private_network=allow_private_network,
+        allow_private_network=getattr(
+            client, "allow_private_network", allow_private_network
+        ),
     )
 
 

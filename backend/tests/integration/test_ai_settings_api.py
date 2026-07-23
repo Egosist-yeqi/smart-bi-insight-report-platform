@@ -17,8 +17,8 @@ def valid_fernet_key(monkeypatch):
     get_settings.cache_clear()
 
 
-def _provider_payload(api_key: str = "test-key") -> dict:
-    return {
+def _provider_payload(api_key: str = "test-key", **overrides) -> dict:
+    payload = {
         "provider_name": "Mock LLM",
         "base_url": "http://mock-llm:8090/v1",
         "api_key": api_key,
@@ -27,6 +27,8 @@ def _provider_payload(api_key: str = "test-key") -> dict:
         "enabled": True,
         "allow_private_network": True,
     }
+    payload.update(overrides)
+    return payload
 
 
 def test_ai_settings_are_masked_and_drive_query(db_session):
@@ -327,6 +329,39 @@ def test_connection_test_accepts_empty_payload_using_saved_config(
     }
     assert db_session.get(AIProviderConfig, 1).encrypted_api_key == encrypted_api_key
     assert "test-key" not in response.text
+    app.dependency_overrides.clear()
+
+
+def test_deepseek_connection_test_reports_private_network_as_disabled(
+    db_session, monkeypatch
+):
+    app = create_app()
+
+    class RecordingClient:
+        allow_private_network = False
+
+        def __init__(self, **_kwargs):
+            pass
+
+        async def test_connection(self):
+            return None
+
+    def override_get_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as api_client:
+        payload = _provider_payload(
+            provider_name="DeepSeek",
+            base_url="https://api.deepseek.com",
+            model="deepseek-v4-flash",
+            allow_private_network=True,
+        )
+        monkeypatch.setattr("app.ai.service.OpenAICompatibleClient", RecordingClient)
+        response = api_client.post("/api/settings/ai/test", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["allow_private_network"] is False
     app.dependency_overrides.clear()
 
 

@@ -93,6 +93,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 
 建议仅填入你拥有使用权限的 HTTPS OpenAI 兼容服务地址。若不再需要外部服务，可在配置页删除该配置并回到本地规则模式。
 
+### 答辩材料
+
+- [答辩主文档：项目特色、架构、演示流程与问答](docs/DEFENSE_GUIDE.md)
+- [三周 Codex 辅助开发交付说明](docs/THREE_WEEK_CODEX_DELIVERY.md)
+
 ### 常见问题
 
 - `Docker Desktop is not ready`：打开 Docker Desktop，等待引擎启动后重试；确认 `docker info` 成功。
