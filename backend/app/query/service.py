@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.warnings import ServiceWarning, ai_service_warning
 from app.db.models import QueryHistory
-from app.query.local_parser import parse_local
+from app.query.local_parser import decision_support_kind, parse_local
 from app.query.schemas import QueryIntent, QueryResult
 from app.query.sql_builder import BuiltQuery, build_select
 
@@ -75,25 +75,30 @@ def run_query(
     built: BuiltQuery | None = None
 
     try:
-        try:
-            resolved_intent = (
-                resolver(question) if resolver is not None else parse_local(question)
-            )
-        except AppError as exc:
-            if resolver is None or not exc.code.startswith("AI_"):
-                raise
-            fallback_warning = query_fallback_warning(exc)
-            try:
-                resolved_intent = parse_local(question)
-            except AppError:
-                raise ai_fallback_unsupported_error(exc) from None
+        decision_kind = decision_support_kind(question)
+        if decision_kind is not None:
+            resolved_intent = parse_local(question)
             engine = "local"
+        else:
+            try:
+                resolved_intent = (
+                    resolver(question) if resolver is not None else parse_local(question)
+                )
+            except AppError as exc:
+                if resolver is None or not exc.code.startswith("AI_"):
+                    raise
+                fallback_warning = query_fallback_warning(exc)
+                try:
+                    resolved_intent = parse_local(question)
+                except AppError:
+                    raise ai_fallback_unsupported_error(exc) from None
+                engine = "local"
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
         raw_rows = _execute_business_select(session, built)
         context, rows = _extract_context(raw_rows)
-        rows, answer, summary = _answer(intent, rows, context)
-        chart_type = "line" if _answer_kind(intent) in {"week_over_week", "forecast"} or set(
+        rows, answer, summary = _answer(intent, rows, context, decision_kind)
+        chart_type = "line" if (decision_kind or _answer_kind(intent)) in {"week_over_week", "forecast", "root_cause"} or set(
             intent.dimensions
         ).intersection({"month", "week"}) else "bar"
         _record_history(
@@ -232,9 +237,12 @@ def _extract_context(rows: list[dict[str, Any]]) -> tuple[DataContext, list[dict
 
 
 def _answer(
-    intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext
+    intent: QueryIntent,
+    rows: list[dict[str, Any]],
+    context: DataContext,
+    decision_kind: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
-    answer_kind = _answer_kind(intent)
+    answer_kind = decision_kind or _answer_kind(intent)
     if not rows:
         return [], _empty_answer(answer_kind, intent), _summary(intent, rows, context)
     if answer_kind == "week_over_week":
@@ -246,6 +254,12 @@ def _answer(
     if answer_kind == "promotion_scenario":
         answer, scenario_rows = _scenario_answer(intent, rows)
         return scenario_rows, answer, _scenario_summary(answer, context)
+    if answer_kind == "root_cause":
+        answer = _root_cause_answer(rows)
+        return rows, answer, _root_cause_summary(answer, context)
+    if answer_kind == "recommendation":
+        answer = _recommendation_answer(rows)
+        return rows, answer, _recommendation_summary(answer, context)
     return rows, None, _summary(intent, rows, context)
 
 
@@ -266,6 +280,10 @@ def _empty_answer(answer_kind: str | None, intent: QueryIntent) -> dict[str, Any
             "region": intent.filters["region"],
             "unavailable": True,
         }
+    if answer_kind == "root_cause":
+        return {"kind": "root_cause", "unavailable": True}
+    if answer_kind == "recommendation":
+        return {"kind": "recommendation", "unavailable": True}
     return None
 
 
@@ -380,7 +398,7 @@ def _scenario_answer(
     simulated_amount = (base_amount * (Decimal("1") + net_change)).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
-    region = intent.filters["region"]
+    region = intent.filters.get("region", "全部区域")
     assumptions = {
         "promotion_increase": PROMOTION_INCREASE,
         "promotion_elasticity": PROMOTION_ELASTICITY,
@@ -397,6 +415,43 @@ def _scenario_answer(
         "simulated_amount": simulated_amount,
     }
     return answer, [answer]
+
+
+def _root_cause_answer(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    chronological_rows = sorted(rows, key=lambda row: str(row["month"]))
+    if len(chronological_rows) < 2:
+        return {"kind": "root_cause", "unavailable": True}
+    previous, current = chronological_rows[-2:]
+    previous_value = Decimal(str(previous["metric_value"]))
+    current_value = Decimal(str(current["metric_value"]))
+    change = current_value - previous_value
+    change_rate = change / previous_value if previous_value else None
+    direction = "下降" if change < 0 else "增长" if change > 0 else "持平"
+    return {
+        "kind": "root_cause",
+        "direction": direction,
+        "current": current,
+        "previous": previous,
+        "absolute_change": change,
+        "percent_change": change_rate,
+        "checks": ["产品组合与折扣", "重点客户订单与复购", "库存、出货和区域执行节奏"],
+    }
+
+
+def _recommendation_answer(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    priority = rows[0]
+    region = str(priority.get("region") or "当前区域")
+    return {
+        "kind": "recommendation",
+        "region": region,
+        "current_amount": Decimal(str(priority["metric_value"])),
+        "actions": [
+            f"先核查{region}的产品组合、重点客户订单与出货节奏，确认问题集中环节。",
+            "对确认下滑的产品或客户建立 7 天跟进清单，并观察订单转化和复购变化。",
+            "促销或降价先进行小范围验证，同时设置毛利底线，再决定是否扩大投入。",
+        ],
+        "guardrail": "建议基于当前销售额排序生成，不代表已确认的因果关系或经营承诺。",
+    }
 
 
 def _summary(intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext) -> str:
@@ -454,6 +509,29 @@ def _scenario_summary(answer: dict[str, Any], context: DataContext) -> str:
         f"（弹性{assumptions['promotion_elasticity']:.2f}），价格下降{assumptions['price_drop']:.0%}"
         f"（弹性{assumptions['price_elasticity']:.2f}），净影响为{answer['net_change']:.2%}，"
         f"模拟销售额为{answer['simulated_amount']}。"
+    )
+
+
+def _root_cause_summary(answer: dict[str, Any], context: DataContext) -> str:
+    if answer.get("unavailable"):
+        return f"{_summary_prefix(context)}可比月份不足，暂不能形成变化归因。"
+    change_rate = answer["percent_change"]
+    rate_text = "无法计算比例" if change_rate is None else f"{abs(change_rate):.2%}"
+    return (
+        f"{_summary_prefix(context)}{answer['current']['month']}销售额为"
+        f"{answer['current']['metric_value']}，较{answer['previous']['month']}"
+        f"{answer['direction']}{rate_text}。这是数据确认的变化，"
+        "需要优先核查产品、客户和出货明细。"
+    )
+
+
+def _recommendation_summary(answer: dict[str, Any], context: DataContext) -> str:
+    if answer.get("unavailable"):
+        return f"{_summary_prefix(context)}暂无可用于生成行动建议的区域销售额。"
+    return (
+        f"{_summary_prefix(context)}当前优先关注{answer['region']}，"
+        f"其最新月销售额为{answer['current_amount']}。"
+        "建议先完成明细核查，再以小范围动作验证改善效果。"
     )
 
 

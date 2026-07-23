@@ -8,6 +8,7 @@ import ReportView from './views/ReportView.jsx';
 import AnomalyView from './views/AnomalyView.jsx';
 import ForecastView from './views/ForecastView.jsx';
 import ConfigView from './views/ConfigView.jsx';
+import ScenarioView from './views/ScenarioView.jsx';
 import { executeQueryRequest } from './lib/queryRequest.js';
 
 const firstQuestion = '上月华东区销售额最高的产品是什么？';
@@ -18,6 +19,7 @@ export default function App() {
   const [queryRequest, setQueryRequest] = useState(null);
   const health = useAsync((signal) => apiClient.health({ signal }), []);
   const provider = useAsync((signal) => apiClient.getAi({ signal }), []);
+  const scenarios = useAsync((signal) => apiClient.scenarios({ signal }), []);
   const history = useAsync(() => apiClient.queryHistory(), []);
   const query = useAsync(async (signal) => {
     try {
@@ -27,13 +29,16 @@ export default function App() {
     }
   }, [queryRequest]);
   const runQuery = (value = question) => { if (!value.trim()) return; setActive('智能查询'); setQueryRequest({ question: value.trim() }); };
+  const activeScenario = scenarios.data?.data?.scenarios?.find((item) => item.active);
+  const refreshScenarioState = () => { scenarios.reload(); health.reload(); history.reload(); };
 
   const views = {
-    '智能查询': <QueryView question={question} setQuestion={setQuestion} submitQuestion={runQuery} resource={query} historyResource={history} />,
-    仪表盘: <DashboardView />,
+    场景库: <ScenarioView onScenarioChange={refreshScenarioState} />,
+    '智能查询': <QueryView scenario={activeScenario} question={question} setQuestion={setQuestion} submitQuestion={runQuery} resource={query} historyResource={history} />,
+    仪表盘: <DashboardView scenario={activeScenario} />,
     报告生成: <ReportView />,
-    异常归因: <AnomalyView />,
-    趋势预测: <ForecastView />,
+    异常归因: <AnomalyView scenario={activeScenario} />,
+    趋势预测: <ForecastView scenario={activeScenario} />,
     系统配置: <ConfigView onProviderChange={() => { provider.reload(); health.reload(); }} />,
   };
 

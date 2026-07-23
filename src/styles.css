@@ -285,6 +285,82 @@ button {
   gap: 8px;
 }
 
+.decision-question-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scenario-item {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-height: 190px;
+  padding: 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 6px;
+  background: #f9fbfd;
+}
+
+.scenario-item--active {
+  border-color: #18a999;
+  background: #f2fbf8;
+}
+
+.scenario-item > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scenario-item h3,
+.scenario-item p {
+  margin: 0;
+}
+
+.scenario-item h3 { font-size: 15px; }
+.scenario-item p,
+.scenario-item small { color: #65758a; font-size: 12px; line-height: 1.55; }
+.scenario-item button { align-self: end; }
+
+.scenario-import-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.scenario-questions,
+.scenario-mapping {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e1e9f1;
+}
+
+.scenario-questions h3,
+.scenario-questions p { margin: 0; }
+.scenario-questions p,
+.scenario-mapping span { color: #65758a; font-size: 13px; line-height: 1.6; }
+
+.decision-question-group {
+  display: grid;
+  gap: 8px;
+}
+
+.decision-question-group h3 {
+  margin: 0;
+  color: #40546b;
+  font-size: 14px;
+}
+
 .sample-grid button {
   min-height: 42px;
   padding: 8px 10px;
@@ -317,6 +393,45 @@ button {
 .result-summary span,
 .result-summary small {
   color: #65758a;
+}
+
+.decision-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #cde7e1;
+  border-radius: 6px;
+  background: #f7fcfb;
+}
+
+.decision-card > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.decision-card span,
+.decision-card small {
+  color: #65758a;
+  font-size: 13px;
+}
+
+.decision-card strong {
+  color: #117a5c;
+  font-size: 20px;
+}
+
+.decision-card p,
+.decision-card ul,
+.decision-card ol {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.decision-card ul,
+.decision-card ol {
+  padding-left: 20px;
 }
 
 .sql-box {
@@ -759,6 +874,9 @@ button:disabled {
   .config-grid {
     grid-template-columns: 1fr;
   }
+
+  .scenario-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scenario-import-controls { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {

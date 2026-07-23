@@ -246,7 +246,7 @@ test.describe.serial('full-stack BI acceptance', () => {
     await page.goto('/');
     await expect(page.getByText('MySQL 正常')).toBeVisible();
     await expect(page.locator('.topbar')).toBeInViewport();
-    await expect(page.locator('.nav-item')).toHaveCount(6);
+    await expect(page.locator('.nav-item')).toHaveCount(7);
     await expect(page.locator('.nav-list')).toHaveCSS('overflow-x', 'auto');
     await page.getByRole('button', { name: question, exact: true }).click();
     await expect(page.locator('.sql-box')).toContainText('SELECT');

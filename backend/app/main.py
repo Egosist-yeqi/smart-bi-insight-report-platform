@@ -14,6 +14,7 @@ from app.api.history import router as history_router
 from app.api.metadata import router as metadata_router
 from app.api.query import router as query_router
 from app.api.reports import router as reports_router
+from app.api.scenarios import router as scenarios_router
 from app.api.settings import router as settings_router
 from app.core.config import get_settings
 from app.core.errors import AppError
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router)
     app.include_router(query_router)
     app.include_router(reports_router)
+    app.include_router(scenarios_router)
     app.include_router(history_router)
     app.include_router(settings_router)
     return app

@@ -11,8 +11,59 @@ class UnrecognizedQuestionError(AppError):
         )
 
 
+def decision_support_kind(question: str) -> str | None:
+    normalized = question.strip()
+    if any(keyword in normalized for keyword in ("如果", "假设", "促销", "价格")):
+        return "promotion_scenario"
+    if any(keyword in normalized for keyword in ("下个月", "预测", "预计")):
+        return "forecast"
+    if any(keyword in normalized for keyword in ("为什么", "原因", "归因")):
+        return "root_cause"
+    if any(keyword in normalized for keyword in ("怎么办", "措施", "建议", "优先关注", "下一步")):
+        return "recommendation"
+    return None
+
+
 def parse_local(question: str) -> QueryIntent:
     normalized = question.strip()
+
+    if decision_support_kind(normalized) == "promotion_scenario":
+        filters = {"region": "华东"} if "华东" in normalized else {}
+        return QueryIntent(
+            metric="amount",
+            dimensions=["region"],
+            time_range="latest_month",
+            filters=filters,
+            analysis_kind="detail",
+        )
+    if decision_support_kind(normalized) == "forecast":
+        return QueryIntent(
+            metric="amount",
+            dimensions=["month"],
+            time_range="all",
+            sort_direction="asc",
+            analysis_kind="trend",
+        )
+    if decision_support_kind(normalized) == "root_cause":
+        filters = {"region": "华南"} if "华南" in normalized else {}
+        return QueryIntent(
+            metric="amount",
+            dimensions=["month"],
+            time_range="all",
+            filters=filters,
+            sort_direction="asc",
+            analysis_kind="comparison",
+        )
+    if decision_support_kind(normalized) == "recommendation":
+        filters = {"region": "华南"} if "华南" in normalized else {}
+        return QueryIntent(
+            metric="amount",
+            dimensions=["region"],
+            time_range="latest_month",
+            filters=filters,
+            sort_direction="asc",
+            analysis_kind="detail",
+        )
 
     if "华东" in normalized and "最高" in normalized and "产品" in normalized:
         return QueryIntent(
@@ -44,32 +95,4 @@ def parse_local(question: str) -> QueryIntent:
             limit=2,
             analysis_kind="comparison",
         )
-    if "为什么" in normalized or "原因" in normalized or "归因" in normalized:
-        filters = {"region": "华南"} if "华南" in normalized else {}
-        return QueryIntent(
-            metric="amount",
-            dimensions=["month"],
-            time_range="last_30_days",
-            filters=filters,
-            sort_direction="asc",
-            analysis_kind="comparison",
-        )
-    if "下个月" in normalized or "预测" in normalized or "预计" in normalized:
-        return QueryIntent(
-            metric="amount",
-            dimensions=["month"],
-            time_range="all",
-            sort_direction="asc",
-            analysis_kind="trend",
-        )
-    if "如果" in normalized or "假设" in normalized or "促销" in normalized:
-        filters = {"region": "华东"} if "华东" in normalized else {}
-        return QueryIntent(
-            metric="amount",
-            dimensions=["region"],
-            time_range="latest_month",
-            filters=filters,
-            analysis_kind="detail",
-        )
-
     raise UnrecognizedQuestionError()

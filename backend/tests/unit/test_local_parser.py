@@ -47,7 +47,7 @@ from app.query.schemas import QueryIntent
             "为什么本月华南区销售额出现下降？",
             "amount",
             ["month"],
-            "last_30_days",
+            "all",
             "comparison",
         ),
         (

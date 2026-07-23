@@ -1,0 +1,2 @@
+record_id,date,region,province,item_id,item_name,category,customer_type,quantity,amount,profit
+example-001,2026-06-01,华东,上海,1,示例项目,示例类别,示例对象,100,100000.00,30000.00

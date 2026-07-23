@@ -11,4 +11,5 @@
 
 - [仪表盘](../qa/full-stack-dashboard.png)
 - [AI 配置](../qa/full-stack-ai-settings.png)
+- [行业场景演示素材库](scenarios/README.md)
 - [移动端查询](../qa/full-stack-mobile-query.png)

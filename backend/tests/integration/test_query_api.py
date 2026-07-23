@@ -224,6 +224,7 @@ def test_query_api_answers_next_month_with_a_deterministic_forecast(api_client):
     assert data["answer"]["prediction"]["is_estimate"] is True
     assert data["answer"]["prediction"]["basis"]
     assert "预计" in data["summary"]
+    assert data["engine"] == "local"
 
 
 def test_query_api_answers_promotion_question_as_an_explicit_scenario(api_client):
@@ -244,6 +245,33 @@ def test_query_api_answers_promotion_question_as_an_explicit_scenario(api_client
         "price_elasticity": 0.68,
     }
     assert "演示情景" in data["summary"]
+    assert data["engine"] == "local"
+
+
+def test_query_api_turns_a_why_question_into_data_backed_checks(api_client):
+    response = api_client.post(
+        "/api/query", json={"question": "为什么本月华南区销售额出现下降？"}
+    )
+
+    data = response.json()["data"]
+    assert response.status_code == 200
+    assert data["engine"] == "local"
+    assert data["answer"]["kind"] == "root_cause"
+    assert len(data["answer"]["checks"]) == 3
+    assert "需要优先核查" in data["summary"]
+
+
+def test_query_api_generates_data_bounded_action_recommendations(api_client):
+    response = api_client.post(
+        "/api/query", json={"question": "本月经营上最需要优先关注哪个区域？"}
+    )
+
+    data = response.json()["data"]
+    assert response.status_code == 200
+    assert data["engine"] == "local"
+    assert data["answer"]["kind"] == "recommendation"
+    assert len(data["answer"]["actions"]) == 3
+    assert "建议先完成明细核查" in data["summary"]
 
 
 @pytest.mark.parametrize(
