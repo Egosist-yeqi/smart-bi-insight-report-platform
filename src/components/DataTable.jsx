@@ -43,7 +43,7 @@ const columnLabels = {
   description: '说明',
 };
 
-export default function DataTable({ rows }) {
+export default function DataTable({ rows, labels = {} }) {
   if (!rows?.length) {
     return <div className="empty-state">暂无查询结果</div>;
   }
@@ -55,7 +55,7 @@ export default function DataTable({ rows }) {
       <table>
         <thead>
           <tr>
-            {columns.map((column) => <th key={column}>{columnLabels[column] || column}</th>)}
+            {columns.map((column) => <th key={column}>{labels[column] || columnLabels[column] || column}</th>)}
           </tr>
         </thead>
         <tbody>

@@ -1,5 +1,6 @@
 from app.core.errors import AppError
 from app.query.schemas import QueryIntent
+from app.scenarios.catalog import template_for_question
 
 
 class UnrecognizedQuestionError(AppError):
@@ -13,6 +14,9 @@ class UnrecognizedQuestionError(AppError):
 
 def decision_support_kind(question: str) -> str | None:
     normalized = question.strip()
+    template = template_for_question(normalized)
+    if template is not None:
+        return template.decision_kind
     if any(keyword in normalized for keyword in ("如果", "假设", "促销", "价格")):
         return "promotion_scenario"
     if any(keyword in normalized for keyword in ("下个月", "预测", "预计")):
@@ -26,6 +30,9 @@ def decision_support_kind(question: str) -> str | None:
 
 def parse_local(question: str) -> QueryIntent:
     normalized = question.strip()
+    template = template_for_question(normalized)
+    if template is not None:
+        return QueryIntent.model_validate(template.intent)
 
     if decision_support_kind(normalized) == "promotion_scenario":
         filters = {"region": "华东"} if "华东" in normalized else {}

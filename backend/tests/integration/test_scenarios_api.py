@@ -67,3 +67,21 @@ def test_scenario_csv_import_replaces_active_dataset_and_validates_template(db_s
     assert db_session.scalar(select(ScenarioState.scenario_id)) == "banking"
     assert db_session.scalar(select(ScenarioState.data_source)) == "imported"
     app.dependency_overrides.clear()
+
+
+def test_every_industry_template_question_is_executable_without_ai_guessing(db_session):
+    seed_database(db_session)
+    app, client = _client(db_session)
+    with client:
+        library = client.get("/api/scenarios").json()["data"]["scenarios"]
+        for scenario in library:
+            activated = client.post(f"/api/scenarios/{scenario['id']}/activate")
+            assert activated.status_code == 200
+            for group in scenario["question_groups"]:
+                for question in group["questions"]:
+                    response = client.post("/api/query", json={"question": question})
+                    data = response.json().get("data", {})
+                    assert response.status_code == 200, question
+                    assert data["engine"] == "local", question
+                    assert data["rows"], question
+    app.dependency_overrides.clear()

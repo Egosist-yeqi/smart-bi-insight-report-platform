@@ -15,6 +15,12 @@ from app.db.models import QueryHistory
 from app.query.local_parser import decision_support_kind, parse_local
 from app.query.schemas import QueryIntent, QueryResult
 from app.query.sql_builder import BuiltQuery, build_select
+from app.scenarios.catalog import (
+    SCENARIO_BY_ID,
+    ScenarioDefinition,
+    scenario_for_template_question,
+    template_for_question,
+)
 
 
 METRIC_LABELS = {
@@ -75,8 +81,12 @@ def run_query(
     built: BuiltQuery | None = None
 
     try:
+        template = template_for_question(question)
         decision_kind = decision_support_kind(question)
-        if decision_kind is not None:
+        if template is not None:
+            resolved_intent = QueryIntent.model_validate(template.intent)
+            engine = "local"
+        elif decision_kind is not None:
             resolved_intent = parse_local(question)
             engine = "local"
         else:
@@ -97,7 +107,8 @@ def run_query(
         built = build_select(intent)
         raw_rows = _execute_business_select(session, built)
         context, rows = _extract_context(raw_rows)
-        rows, answer, summary = _answer(intent, rows, context, decision_kind)
+        scenario = scenario_for_template_question(question) or SCENARIO_BY_ID["ecommerce"]
+        rows, answer, summary = _answer(intent, rows, context, decision_kind, scenario)
         chart_type = "line" if (decision_kind or _answer_kind(intent)) in {"week_over_week", "forecast", "root_cause"} or set(
             intent.dimensions
         ).intersection({"month", "week"}) else "bar"
@@ -241,26 +252,28 @@ def _answer(
     rows: list[dict[str, Any]],
     context: DataContext,
     decision_kind: str | None = None,
+    scenario: ScenarioDefinition | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
+    scenario = scenario or SCENARIO_BY_ID["ecommerce"]
     answer_kind = decision_kind or _answer_kind(intent)
     if not rows:
-        return [], _empty_answer(answer_kind, intent), _summary(intent, rows, context)
+        return [], _empty_answer(answer_kind, intent), _summary(intent, rows, context, scenario)
     if answer_kind == "week_over_week":
         answer, comparison_rows = _week_over_week(rows)
         return comparison_rows, answer, _week_summary(answer, context)
     if answer_kind == "forecast":
         answer, forecast_rows = _forecast_answer(rows)
-        return forecast_rows, answer, _forecast_summary(answer, context)
+        return forecast_rows, answer, _forecast_summary(answer, context, scenario)
     if answer_kind == "promotion_scenario":
         answer, scenario_rows = _scenario_answer(intent, rows)
-        return scenario_rows, answer, _scenario_summary(answer, context)
+        return scenario_rows, answer, _scenario_summary(answer, context, scenario)
     if answer_kind == "root_cause":
-        answer = _root_cause_answer(rows)
-        return rows, answer, _root_cause_summary(answer, context)
+        answer = _root_cause_answer(rows, scenario)
+        return rows, answer, _root_cause_summary(answer, context, scenario)
     if answer_kind == "recommendation":
-        answer = _recommendation_answer(rows)
-        return rows, answer, _recommendation_summary(answer, context)
-    return rows, None, _summary(intent, rows, context)
+        answer = _recommendation_answer(rows, scenario)
+        return rows, answer, _recommendation_summary(answer, context, scenario)
+    return rows, None, _summary(intent, rows, context, scenario)
 
 
 def _empty_answer(answer_kind: str | None, intent: QueryIntent) -> dict[str, Any] | None:
@@ -417,7 +430,9 @@ def _scenario_answer(
     return answer, [answer]
 
 
-def _root_cause_answer(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _root_cause_answer(
+    rows: list[dict[str, Any]], scenario: ScenarioDefinition
+) -> dict[str, Any]:
     chronological_rows = sorted(rows, key=lambda row: str(row["month"]))
     if len(chronological_rows) < 2:
         return {"kind": "root_cause", "unavailable": True}
@@ -434,44 +449,57 @@ def _root_cause_answer(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "previous": previous,
         "absolute_change": change,
         "percent_change": change_rate,
-        "checks": ["产品组合与折扣", "重点客户订单与复购", "库存、出货和区域执行节奏"],
+        "checks": list(scenario.root_cause_checks),
     }
 
 
-def _recommendation_answer(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _recommendation_answer(
+    rows: list[dict[str, Any]], scenario: ScenarioDefinition
+) -> dict[str, Any]:
     priority = rows[0]
     region = str(priority.get("region") or "当前区域")
     return {
         "kind": "recommendation",
         "region": region,
         "current_amount": Decimal(str(priority["metric_value"])),
-        "actions": [
-            f"先核查{region}的产品组合、重点客户订单与出货节奏，确认问题集中环节。",
-            "对确认下滑的产品或客户建立 7 天跟进清单，并观察订单转化和复购变化。",
-            "促销或降价先进行小范围验证，同时设置毛利底线，再决定是否扩大投入。",
-        ],
-        "guardrail": "建议基于当前销售额排序生成，不代表已确认的因果关系或经营承诺。",
+        "actions": [item.format(region=region) for item in scenario.recommendation_actions],
+        "guardrail": f"建议基于当前{scenario.amount_label}排序生成，不代表已确认的因果关系或经营承诺。",
     }
 
 
-def _summary(intent: QueryIntent, rows: list[dict[str, Any]], context: DataContext) -> str:
-    metric_label = METRIC_LABELS[intent.metric]
+def _summary(
+    intent: QueryIntent,
+    rows: list[dict[str, Any]],
+    context: DataContext,
+    scenario: ScenarioDefinition,
+) -> str:
+    metric_label = {
+        "amount": scenario.amount_label,
+        "quantity": scenario.quantity_label,
+    }.get(intent.metric, METRIC_LABELS[intent.metric])
+    dimension_labels = {
+        **DIMENSION_LABELS,
+        "region": scenario.region_label,
+        "product_name": scenario.entity_label,
+        "category": scenario.category_label,
+        "customer_type": scenario.customer_label,
+    }
     prefix = _summary_prefix(context)
     if not rows:
         if context.data_as_of is None:
             return f"当前数据集为空；暂无可用订单数据，无法查询{metric_label}。"
         return f"{prefix}未查询到符合条件的{metric_label}数据。"
-    dimension_labels = "、".join(DIMENSION_LABELS[item] for item in intent.dimensions)
+    joined_dimension_labels = "、".join(dimension_labels[item] for item in intent.dimensions)
     if intent.analysis_kind == "ranking" and intent.dimensions:
         first_dimension = intent.dimensions[0]
         leading_value = rows[0].get(first_dimension)
         leading_metric = rows[0].get("metric_value")
         return (
             f"{prefix}已返回{len(rows)}条{metric_label}数据，排名第一的"
-            f"{DIMENSION_LABELS[first_dimension]}为{leading_value}，{metric_label}为{leading_metric}。"
+            f"{dimension_labels[first_dimension]}为{leading_value}，{metric_label}为{leading_metric}。"
         )
-    if dimension_labels:
-        return f"{prefix}已返回{len(rows)}条{metric_label}数据，按{dimension_labels}汇总。"
+    if joined_dimension_labels:
+        return f"{prefix}已返回{len(rows)}条{metric_label}数据，按{joined_dimension_labels}汇总。"
     return f"{prefix}已返回{len(rows)}条{metric_label}数据。"
 
 
@@ -490,47 +518,55 @@ def _week_summary(answer: dict[str, Any], context: DataContext) -> str:
     )
 
 
-def _forecast_summary(answer: dict[str, Any], context: DataContext) -> str:
+def _forecast_summary(
+    answer: dict[str, Any], context: DataContext, scenario: ScenarioDefinition
+) -> str:
     prefix = _summary_prefix(context)
     prediction = answer["prediction"]
     if prediction is None:
-        return f"{prefix}历史数据不足，无法生成下月销售额预测。"
+        return f"{prefix}历史数据不足，无法生成下月{scenario.amount_label}预测。"
     return (
-        f"{prefix}预计{prediction['month']}销售额约为{prediction['amount']}。"
+        f"{prefix}预计{prediction['month']}{scenario.amount_label}约为{prediction['amount']}。"
         f"{prediction['basis']}预测仅供经营分析参考。"
     )
 
 
-def _scenario_summary(answer: dict[str, Any], context: DataContext) -> str:
+def _scenario_summary(
+    answer: dict[str, Any], context: DataContext, scenario: ScenarioDefinition
+) -> str:
     assumptions = answer["assumptions"]
     return (
         f"{_summary_prefix(context)}这是演示情景估算，并非实际观测结果："
-        f"假设{answer['region']}促销投入增加{assumptions['promotion_increase']:.0%}"
+        f"假设{answer['region']}业务投入增加{assumptions['promotion_increase']:.0%}"
         f"（弹性{assumptions['promotion_elasticity']:.2f}），价格下降{assumptions['price_drop']:.0%}"
         f"（弹性{assumptions['price_elasticity']:.2f}），净影响为{answer['net_change']:.2%}，"
-        f"模拟销售额为{answer['simulated_amount']}。"
+        f"模拟{scenario.amount_label}为{answer['simulated_amount']}。"
     )
 
 
-def _root_cause_summary(answer: dict[str, Any], context: DataContext) -> str:
+def _root_cause_summary(
+    answer: dict[str, Any], context: DataContext, scenario: ScenarioDefinition
+) -> str:
     if answer.get("unavailable"):
         return f"{_summary_prefix(context)}可比月份不足，暂不能形成变化归因。"
     change_rate = answer["percent_change"]
     rate_text = "无法计算比例" if change_rate is None else f"{abs(change_rate):.2%}"
     return (
-        f"{_summary_prefix(context)}{answer['current']['month']}销售额为"
+        f"{_summary_prefix(context)}{answer['current']['month']}{scenario.amount_label}为"
         f"{answer['current']['metric_value']}，较{answer['previous']['month']}"
         f"{answer['direction']}{rate_text}。这是数据确认的变化，"
-        "需要优先核查产品、客户和出货明细。"
+        f"需要优先核查{scenario.entity_label}、{scenario.customer_label}和{scenario.region_label}执行明细。"
     )
 
 
-def _recommendation_summary(answer: dict[str, Any], context: DataContext) -> str:
+def _recommendation_summary(
+    answer: dict[str, Any], context: DataContext, scenario: ScenarioDefinition
+) -> str:
     if answer.get("unavailable"):
-        return f"{_summary_prefix(context)}暂无可用于生成行动建议的区域销售额。"
+        return f"{_summary_prefix(context)}暂无可用于生成行动建议的{scenario.region_label}{scenario.amount_label}。"
     return (
         f"{_summary_prefix(context)}当前优先关注{answer['region']}，"
-        f"其最新月销售额为{answer['current_amount']}。"
+        f"其最新月{scenario.amount_label}为{answer['current_amount']}。"
         "建议先完成明细核查，再以小范围动作验证改善效果。"
     )
 

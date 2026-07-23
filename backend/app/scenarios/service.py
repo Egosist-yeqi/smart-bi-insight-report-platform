@@ -66,8 +66,14 @@ def _scenario_payload(scenario: ScenarioDefinition, active: bool) -> dict:
         "entity_label": scenario.entity_label,
         "amount_label": scenario.amount_label,
         "quantity_label": scenario.quantity_label,
+        "region_label": scenario.region_label,
+        "category_label": scenario.category_label,
+        "customer_label": scenario.customer_label,
         "active": active,
-        "question_groups": [{"title": title, "questions": list(questions)} for title, questions in scenario.question_groups],
+        "question_groups": [
+            {"title": title, "questions": [question.text for question in questions]}
+            for title, questions in scenario.question_groups
+        ],
         "field_mappings": [{"field": field, "label": label} for field, label in scenario.field_mappings],
         "csv_headers": list(CSV_HEADERS),
         "sample_row": _sample_row(scenario),

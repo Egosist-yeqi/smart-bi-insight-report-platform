@@ -27,19 +27,20 @@ function provenanceText(result) {
   return 'AI 解析结果已通过只读 SQL 校验。';
 }
 
-function DecisionCard({ answer }) {
+function DecisionCard({ answer, scenario }) {
   if (!answer || answer.unavailable) return null;
+  const amountLabel = scenario?.amount_label || '销售额';
   if (answer.kind === 'promotion_scenario') {
-    return <article className="decision-card"><div><span>情景预测</span><strong>{formatCurrency(answer.simulated_amount)}</strong></div><p>以 {formatCurrency(answer.base_amount)} 为基准；促销投入增加 {formatPercent(answer.assumptions.promotion_increase)}、价格下降 {formatPercent(answer.assumptions.price_drop)}，演示模型估算净影响 {formatPercent(answer.net_change)}。</p><small>弹性假设仅用于模拟，需结合毛利和转化数据验证。</small></article>;
+    return <article className="decision-card"><div><span>{amountLabel}情景预测</span><strong>{formatCurrency(answer.simulated_amount)}</strong></div><p>以 {formatCurrency(answer.base_amount)} 为基准；业务投入增加 {formatPercent(answer.assumptions.promotion_increase)}、价格下调 {formatPercent(answer.assumptions.price_drop)}，演示模型估算净影响 {formatPercent(answer.net_change)}。</p><small>弹性假设仅用于模拟，需结合该场景的业务明细验证。</small></article>;
   }
   if (answer.kind === 'forecast' && answer.prediction) {
-    return <article className="decision-card"><div><span>趋势预测</span><strong>{formatCurrency(answer.prediction.amount)}</strong></div><p>预测月份：{String(answer.prediction.month).slice(0, 7)}。{answer.prediction.basis}</p><small>预测基于历史趋势，不代表实际经营承诺。</small></article>;
+    return <article className="decision-card"><div><span>{amountLabel}趋势预测</span><strong>{formatCurrency(answer.prediction.amount)}</strong></div><p>预测月份：{String(answer.prediction.month).slice(0, 7)}。{answer.prediction.basis}</p><small>预测基于历史趋势，不代表实际经营承诺。</small></article>;
   }
   if (answer.kind === 'root_cause') {
     return <article className="decision-card"><div><span>变化归因线索</span><strong>{formatPercent(answer.percent_change)}</strong></div><p>{answer.current.month} 相比 {answer.previous.month} {answer.direction}，需要优先核查：</p><ul>{answer.checks.map((item) => <li key={item}>{item}</li>)}</ul><small>以上为数据驱动的核查方向，不将相关性直接认定为因果。</small></article>;
   }
   if (answer.kind === 'recommendation') {
-    return <article className="decision-card"><div><span>行动建议</span><strong>{answer.region}</strong></div><p>当前月销售额：{formatCurrency(answer.current_amount)}</p><ol>{answer.actions.map((item) => <li key={item}>{item}</li>)}</ol><small>{answer.guardrail}</small></article>;
+    return <article className="decision-card"><div><span>行动建议</span><strong>{answer.region}</strong></div><p>当前月{amountLabel}：{formatCurrency(answer.current_amount)}</p><ol>{answer.actions.map((item) => <li key={item}>{item}</li>)}</ol><small>{answer.guardrail}</small></article>;
   }
   return null;
 }
@@ -87,6 +88,13 @@ function QueryHistory({ resource }) {
 
 export default function QueryView({ scenario, question, setQuestion, submitQuestion, resource, historyResource }) {
   const questionGroups = scenario?.question_groups || sampleQuestionGroups;
+  const columnLabels = {
+    region: scenario?.region_label,
+    product_name: scenario?.entity_label,
+    category: scenario?.category_label,
+    customer_type: scenario?.customer_label,
+    metric_value: scenario?.amount_label,
+  };
   return (
     <section className="workspace">
       <div className="panel panel--span-7">
@@ -100,7 +108,7 @@ export default function QueryView({ scenario, question, setQuestion, submitQuest
           return <div className="query-result">
             {result.warning ? <div className="analysis-warning" role="status"><strong>{result.warning.message}</strong><span>{result.warning.code}</span></div> : null}
             <div className="result-summary"><span>{result.data_period || result.query_period}</span><strong>{result.summary}</strong><small>{provenanceText(result)}</small></div>
-            <DecisionCard answer={result.answer} />
+            <DecisionCard answer={result.answer} scenario={scenario} />
             <pre className="sql-box">{result.sql}</pre>
             <div className="actions-row"><button type="button" onClick={() => submitQuestion(question)}>重新运行</button><button type="button" onClick={() => downloadText('query-result.csv', rowsToCsv(result.rows), 'text/csv;charset=utf-8')}>导出 CSV</button></div>
           </div>;
@@ -116,7 +124,7 @@ export default function QueryView({ scenario, question, setQuestion, submitQuest
       </div>
       <div className="panel panel--span-12">
         <div className="panel-header"><h2>结果表</h2><span>自动匹配业务指标与维度</span></div>
-        <AsyncPanel resource={resource} minHeight={220}>{(response) => <DataTable rows={response?.data?.rows || []} />}</AsyncPanel>
+        <AsyncPanel resource={resource} minHeight={220}>{(response) => <DataTable rows={response?.data?.rows || []} labels={columnLabels} />}</AsyncPanel>
       </div>
       <QueryHistory resource={historyResource} />
     </section>
