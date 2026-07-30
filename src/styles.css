@@ -345,8 +345,9 @@ button:disabled { cursor: not-allowed; opacity: 0.5; box-shadow: none !important
   .sidebar-note { display: none; }
   .nav-list { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
   .nav-item { flex: 0 0 auto; width: auto; min-height: 38px; padding: 0 12px 0 27px; white-space: nowrap; }
+  .topbar, .topbar > div { min-width: 0; }
   .topbar { margin-bottom: 20px; }
-  .topbar h1 { font-size: 27px; }
+  .topbar h1 { max-width: 100%; font-size: 27px; overflow-wrap: anywhere; word-break: break-word; }
   .topbar p { font-size: 14px; }
   .command-bar, .sample-grid, .metrics-row, .scenario-grid { grid-template-columns: 1fr; }
   .command-bar { border-radius: 16px; }
