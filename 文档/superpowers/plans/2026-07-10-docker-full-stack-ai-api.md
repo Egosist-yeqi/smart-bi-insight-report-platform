@@ -1100,12 +1100,12 @@ git commit -m "docs: add one-command local operations"
 **Files:**
 - Create: `playwright.config.js`
 - Create: `tests/e2e/system.spec.js`
-- Create: `docs/qa/full-stack-dashboard.png`
-- Create: `docs/qa/full-stack-ai-settings.png`
+- Create: `文档/qa/full-stack-dashboard.png`
+- Create: `文档/qa/full-stack-ai-settings.png`
 - Modify: `package.json`
 - Modify: `package-lock.json`
 - Modify: `scripts/test.ps1`
-- Modify: `docs/PROCESS_2026-07-09.md`
+- Modify: `文档/PROCESS_2026-07-09.md`
 
 **Interfaces:**
 - Consumes: complete app at `http://localhost:8080`, test-profile mock LLM, lifecycle scripts.
@@ -1169,7 +1169,7 @@ $before = (Invoke-RestMethod http://localhost:8080/api/health).data.seeded_order
 docker compose restart mysql backend
 $after = (Invoke-RestMethod http://localhost:8080/api/health).data.seeded_orders
 if ($before -ne 540 -or $after -ne 540) { throw "Persistence check failed" }
-git grep -n -I -E "test-key|sk-[A-Za-z0-9]{8,}|APP_ENCRYPTION_KEY=[A-Za-z0-9_-]{40,}" -- ':!docs/superpowers/*' ':!backend/tests/*' ':!tests/e2e/*' ':!.env.example'
+git grep -n -I -E "test-key|sk-[A-Za-z0-9]{8,}|APP_ENCRYPTION_KEY=[A-Za-z0-9_-]{40,}" -- ':!文档/superpowers/*' ':!backend/tests/*' ':!tests/e2e/*' ':!.env.example'
 git status --short
 ```
 
@@ -1177,10 +1177,10 @@ Expected: counts remain 540, secret scan returns no production secret, and only 
 
 - [ ] **Step 5: Update process documentation and commit acceptance evidence**
 
-Append a 2026-07-10 section to `docs/PROCESS_2026-07-09.md` listing Docker services, MySQL rows, AI configuration behavior, commands run, test counts, browser viewports, and remaining production-only limitations.
+Append a 2026-07-10 section to `文档/PROCESS_2026-07-09.md` listing Docker services, MySQL rows, AI configuration behavior, commands run, test counts, browser viewports, and remaining production-only limitations.
 
 ```powershell
-git add package.json package-lock.json playwright.config.js tests/e2e scripts/test.ps1 docs/qa docs/PROCESS_2026-07-09.md
+git add package.json package-lock.json playwright.config.js tests/e2e scripts/test.ps1 文档/qa 文档/PROCESS_2026-07-09.md
 git commit -m "test: verify full-stack BI workflow"
 ```
 

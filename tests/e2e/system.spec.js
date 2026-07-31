@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const question = '上月华东区销售额最高的产品是什么？';
 const regionalRankingQuestion = '本月各区域销售额排名如何？';
-const qaPath = (name) => fileURLToPath(new URL(`../../docs/qa/${name}`, import.meta.url));
+const qaPath = (name) => fileURLToPath(new URL(`../../文档/qa/${name}`, import.meta.url));
 const healthOutageTest = 'shows a database outage reported by the health endpoint';
 
 const test = base.extend({
