@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import AsyncPanel from '../components/AsyncPanel.jsx';
 import MetricCard from '../components/MetricCard.jsx';
 import { BarChart, ContributionGrid, LineChart } from '../components/Charts.jsx';
-import { formatDelta } from '../lib/formatters.js';
+import { formatDelta, formatNumber } from '../lib/formatters.js';
 import { apiClient } from '../lib/apiClient.js';
 import { useAsync } from '../hooks/useAsync.js';
 
@@ -24,6 +24,16 @@ export default function DashboardView({ scenario }) {
       })}
       <button type="button" onClick={() => setFilters(defaults)}>清空筛选</button>
     </div>
+    <AsyncPanel resource={metadata} minHeight={200}>{(metadataResponse) => {
+      const metadataData = metadataResponse?.data;
+      const scope = metadataData?.data_scope;
+      const metrics = metadataData?.metrics || [];
+      return <div className="panel panel--span-12 metric-governance">
+        <div className="panel-header"><div><h2>指标口径与数据范围</h2><p>当前结论基于下方数据覆盖范围和已登记指标计算；切换场景或导入数据后会自动更新。</p></div><span>{scope ? `${formatNumber(scope.records)} 条记录` : '加载中'}</span></div>
+        {scope && <div className="metric-governance__scope"><span>数据起止<strong>{scope.start_date || '暂无'} 至 {scope.end_date || '暂无'}</strong></span><span>有效月份<strong>{formatNumber(scope.months)}</strong></span><span>可用维度<strong>{formatNumber(metadataData.regions.length)} 个组织 · {formatNumber(metadataData.categories.length)} 个分类 · {formatNumber(metadataData.customer_types.length)} 类对象</strong></span></div>}
+        <details className="metric-governance__definitions"><summary>查看 {formatNumber(metrics.length)} 项已启用指标口径</summary><div>{metrics.map((metric) => <article key={metric.metric_code}><strong>{metric.metric_name}</strong><code>{metric.formula}</code><span>{metric.description}</span></article>)}</div></details>
+      </div>;
+    }}</AsyncPanel>
     <AsyncPanel resource={dashboard} minHeight={560}>{(response) => {
       const data = response?.data;
       if (!data) return <div className="panel panel--span-12 empty-state">暂无仪表盘数据</div>;

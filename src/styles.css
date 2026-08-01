@@ -250,6 +250,18 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .data-quality-preview__grid span { display: grid; gap: 4px; color: #6e6e73; font-size: 11px; }
 .data-quality-preview__grid strong { color: #1d1d1f; font-size: 13px; font-weight: 670; overflow-wrap: anywhere; }
 .data-quality-preview ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; }
+.metric-governance { display: grid; gap: 17px; }
+.metric-governance .panel-header { margin-bottom: 0; }
+.metric-governance__scope { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.metric-governance__scope span { display: grid; gap: 5px; color: #6e6e73; font-size: 12px; }
+.metric-governance__scope strong { color: #1d1d1f; font-size: 13px; font-weight: 670; overflow-wrap: anywhere; }
+.metric-governance__definitions { border-top: 1px solid #e8e8ed; padding-top: 14px; }
+.metric-governance__definitions summary { color: #0066cc; cursor: pointer; font-size: 13px; font-weight: 650; }
+.metric-governance__definitions > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin-top: 11px; }
+.metric-governance__definitions article { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px 11px; padding: 11px 0; border-bottom: 1px solid #e8e8ed; }
+.metric-governance__definitions article strong { color: #1d1d1f; font-size: 13px; }
+.metric-governance__definitions article code { color: #0066cc; font-size: 12px; overflow-wrap: anywhere; }
+.metric-governance__definitions article span { grid-column: 2; color: #6e6e73; font-size: 12px; line-height: 1.55; }
 
 .query-result { display: grid; gap: 14px; margin-top: 18px; }
 .result-summary { display: grid; gap: 6px; padding: 15px 16px; border: 1px solid rgba(0,113,227,0.16); border-radius: 14px; background: #f4f9ff; }
@@ -344,6 +356,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; box-shadow: none !important
   .metrics-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .config-grid, .scenario-import-controls { grid-template-columns: 1fr; }
   .data-quality-preview__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-governance__scope { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
   body { min-width: 0; overflow-x: hidden; }
@@ -359,6 +372,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; box-shadow: none !important
   .topbar p { font-size: 14px; }
   .command-bar, .sample-grid, .metrics-row, .scenario-grid { grid-template-columns: 1fr; }
   .data-quality-preview__grid { grid-template-columns: 1fr; }
+  .metric-governance__definitions > div { grid-template-columns: 1fr; }
   .command-bar { border-radius: 16px; }
   .panel { padding: 16px; border-radius: 17px; }
   .query-history__item { grid-template-columns: minmax(0, 1fr); gap: 8px; }

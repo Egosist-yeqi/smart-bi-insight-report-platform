@@ -50,6 +50,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 ## API contract summary
 
 - `GET /api/health`: application/database status, record count, AI mode and provider.
+- `GET /api/metadata`: registered metric formulas/descriptions, filter values and current dataset coverage (`data_scope`).
 - `POST /api/query`: `{ question }` -> safe SQL, rows, summary, chart recommendation and warnings.
 - `GET /api/dashboard`: optional `region`, `category`, `customer_type` filters.
 - `POST /api/reports/generate`: report type plus selected modules.

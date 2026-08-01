@@ -10,6 +10,7 @@ from app.analytics.schemas import (
     AnomalyResult,
     DashboardFilters,
     DashboardResult,
+    DataScopeData,
     ForecastPrediction,
     ForecastResult,
     KpiDeltas,
@@ -190,6 +191,14 @@ def get_metadata(session: Session) -> MetadataResult:
     def values(column) -> list[str]:
         return list(session.scalars(select(column).distinct().order_by(column)))
 
+    dates = list(session.scalars(select(SalesOrder.order_date).distinct()))
+    data_scope = DataScopeData(
+        records=session.scalar(select(func.count()).select_from(SalesOrder)) or 0,
+        start_date=min(dates) if dates else None,
+        end_date=max(dates) if dates else None,
+        months=len({(item.year, item.month) for item in dates}),
+    )
+
     return MetadataResult(
         metrics=[
             MetricDefinitionData(
@@ -204,6 +213,7 @@ def get_metadata(session: Session) -> MetadataResult:
         regions=values(SalesOrder.region),
         categories=values(SalesOrder.category),
         customer_types=values(SalesOrder.customer_type),
+        data_scope=data_scope,
     )
 
 

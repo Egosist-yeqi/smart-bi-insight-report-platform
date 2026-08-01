@@ -54,6 +54,12 @@ def test_metadata_returns_metrics_and_distinct_filter_values(api_client):
         "边缘计算",
     }
     assert set(data["customer_types"]) == {"企业客户", "政府客户", "渠道客户"}
+    assert data["data_scope"] == {
+        "records": 540,
+        "start_date": "2025-01-04",
+        "end_date": "2026-06-27",
+        "months": 18,
+    }
     assert response.headers["X-Request-ID"] == response.json()["request_id"]
 
 

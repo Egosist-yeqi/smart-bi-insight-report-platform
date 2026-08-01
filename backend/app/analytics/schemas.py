@@ -18,11 +18,19 @@ class MetricDefinitionData(BaseModel):
     enabled: bool
 
 
+class DataScopeData(BaseModel):
+    records: int
+    start_date: date | None
+    end_date: date | None
+    months: int
+
+
 class MetadataResult(BaseModel):
     metrics: list[MetricDefinitionData]
     regions: list[str]
     categories: list[str]
     customer_types: list[str]
+    data_scope: DataScopeData
 
 
 class Kpis(BaseModel):
