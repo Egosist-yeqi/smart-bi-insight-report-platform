@@ -16,6 +16,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 2. It supports five demo scenarios: ecommerce, hospital, banking, manufacturing, and internet. Switching a scenario replaces the current dataset and clears query history.
 3. Imported data is deliberately constrained to 11 CSV fields: `record_id,date,region,province,item_id,item_name,category,customer_type,quantity,amount,profit`.
 4. Local rule mode must keep working without an API key. AI is optional enrichment, not a prerequisite.
+5. Action suggestions are not approved work. Only user-created action items are persisted; closing an action requires a non-empty review note.
 5. No production authentication, RBAC, multi-tenancy, public deployment, or arbitrary-schema Text-to-SQL is implemented.
 
 ## Code map
@@ -23,7 +24,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 | Location | Responsibility |
 | --- | --- |
 | `src/App.jsx` | Application state, navigation and async resources. |
-| `src/views/` | Scenario, Query, Dashboard, Report, Anomaly, Forecast and Config screens. |
+| `src/views/` | Scenario, Query, Dashboard, Report, Anomaly, Forecast, Action and Config screens. |
 | `src/components/AppShell.jsx` | Navigation, top command bar and status display. |
 | `src/styles.css` | Apple-inspired premium light workspace styling; preserve responsive rules. |
 | `src/lib/` | API client, downloads, formatting, request/history helpers and legacy UI utilities. |
@@ -31,6 +32,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 | `backend/app/query/` | Controlled intent schemas, local parsing, SQL construction and query execution. |
 | `backend/app/analytics/` | Dashboard, anomaly and forecast calculations. |
 | `backend/app/reports/` | Modular report generation. |
+| `backend/app/actions/` | Persisted decision-action creation, lifecycle validation and summary. |
 | `backend/app/scenarios/` | Scenario catalog, activation and CSV import. |
 | `backend/app/ai/` | Encrypted external AI configuration, validation, DeepSeek/OpenAI-compatible integration and fallback. |
 | `backend/app/db/` | SQLAlchemy models, sessions and seed data. |
@@ -55,6 +57,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - `GET /api/dashboard`: optional `region`, `category`, `customer_type` filters.
 - `POST /api/reports/generate`: report type plus selected modules.
 - `GET /api/anomalies`, `GET /api/forecast`: decision-support analysis.
+- `GET/POST /api/actions`, `PATCH /api/actions/{id}`: human-confirmed action tracking; completion requires `review_notes`.
 - `GET /api/scenarios`, `POST /api/scenarios/{id}/activate`, `POST /api/scenarios/import`: scenario library and CSV replacement.
 - `POST /api/scenarios/import/preview`: strict non-mutating CSV validation plus data coverage summary; use this before import.
 - `GET/PUT/DELETE /api/settings/ai`, `POST /api/settings/ai/test`: optional AI configuration.

@@ -7,6 +7,7 @@ import DashboardView from './views/DashboardView.jsx';
 import ReportView from './views/ReportView.jsx';
 import AnomalyView from './views/AnomalyView.jsx';
 import ForecastView from './views/ForecastView.jsx';
+import ActionView from './views/ActionView.jsx';
 import ConfigView from './views/ConfigView.jsx';
 import ScenarioView from './views/ScenarioView.jsx';
 import { executeQueryRequest } from './lib/queryRequest.js';
@@ -39,6 +40,7 @@ export default function App() {
     报告生成: <ReportView />,
     异常归因: <AnomalyView scenario={activeScenario} />,
     趋势预测: <ForecastView scenario={activeScenario} />,
+    行动中心: <ActionView scenario={activeScenario} />,
     系统配置: <ConfigView onProviderChange={() => { provider.reload(); health.reload(); }} />,
   };
 

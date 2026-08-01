@@ -1,7 +1,7 @@
 import React from 'react';
 import { statusText } from '../lib/status.js';
 
-const navItems = ['场景库', '智能查询', '仪表盘', '报告生成', '异常归因', '趋势预测', '系统配置'];
+const navItems = ['场景库', '智能查询', '仪表盘', '异常归因', '趋势预测', '行动中心', '报告生成', '系统配置'];
 
 export default function AppShell({ active, setActive, question, setQuestion, onRun, healthResource, onRefreshStatus, providerResource, children }) {
   const status = statusText(healthResource, providerResource);

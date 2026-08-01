@@ -82,6 +82,27 @@ test('scenario import preview uses the non-mutating preview endpoint', async () 
   assert.deepEqual(JSON.parse(requestedOptions.body), { scenario_id: 'ecommerce', csv_text: 'record_id' });
 });
 
+test('action client uses create and patch endpoints with structured payloads', async () => {
+  const requests = [];
+  const client = createApiClient(async (path, options) => {
+    requests.push({ path, options });
+    return new Response(JSON.stringify({ data: { id: 8 }, request_id: 'action-request' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  await client.createAction({ title: '核查异动', priority: 'high' });
+  await client.updateAction(8, { status: 'completed', review_notes: '已复盘' });
+
+  assert.equal(requests[0].path, '/api/actions');
+  assert.equal(requests[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].options.body), { title: '核查异动', priority: 'high' });
+  assert.equal(requests[1].path, '/api/actions/8');
+  assert.equal(requests[1].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(requests[1].options.body), { status: 'completed', review_notes: '已复盘' });
+});
+
 test('CSV sanitizes formula-leading values after whitespace and preserves Chinese newlines', () => {
   assert.equal(sanitizeCsvCell(' \t=SUM(A1:A2)'), "' \t=SUM(A1:A2)");
   assert.equal(sanitizeCsvCell('+1'), "'+1");

@@ -140,3 +140,29 @@ class QueryHistory(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False, index=True
     )
+
+
+class DecisionAction(Base):
+    __tablename__ = "decision_action"
+    __table_args__ = (
+        Index("ix_decision_action_status_due_date", "status", "due_date"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    owner: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    priority: Mapped[str] = mapped_column(String(12), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    target_metric: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+        nullable=False,
+    )

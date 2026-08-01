@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.analytics import router as analytics_router
+from app.api.actions import router as actions_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.history import router as history_router
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(metadata_router)
     app.include_router(dashboard_router)
     app.include_router(analytics_router)
+    app.include_router(actions_router)
     app.include_router(query_router)
     app.include_router(reports_router)
     app.include_router(scenarios_router)
