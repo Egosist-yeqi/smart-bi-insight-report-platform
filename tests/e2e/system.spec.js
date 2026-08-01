@@ -247,7 +247,8 @@ test.describe.serial('full-stack BI acceptance', () => {
     await page.screenshot({ path: qaPath('full-stack-ai-settings.png'), fullPage: true });
 
     await openView(page, '智能查询');
-    await page.getByRole('button', { name: question, exact: true }).click();
+    await page.locator('.command-bar input').fill(question);
+    await page.getByRole('button', { name: '运行查询', exact: true }).click();
     await expect(page.getByText('AI 解析结果已通过只读 SQL 校验。')).toBeVisible();
 
     await openView(page, '系统配置');
