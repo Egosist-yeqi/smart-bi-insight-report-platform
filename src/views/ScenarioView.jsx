@@ -3,6 +3,7 @@ import AsyncPanel from '../components/AsyncPanel.jsx';
 import DataTable from '../components/DataTable.jsx';
 import { downloadText } from '../lib/downloads.js';
 import { apiClient } from '../lib/apiClient.js';
+import { formatNumber } from '../lib/formatters.js';
 import { useAsync } from '../hooks/useAsync.js';
 
 const standardFields = [
@@ -26,6 +27,7 @@ export default function ScenarioView({ onScenarioChange }) {
   const resource = useAsync((signal) => apiClient.scenarios({ signal }), []);
   const [selectedId, setSelectedId] = useState('');
   const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [mutation, setMutation] = useState(null);
   const data = resource.data?.data;
   const active = data?.scenarios?.find((item) => item.active) || data?.scenarios?.[0];
@@ -40,6 +42,7 @@ export default function ScenarioView({ onScenarioChange }) {
       const result = await apiClient.activateScenario(scenario.id);
       setSelectedId(scenario.id);
       setFile(null);
+      setPreview(null);
       setMutation({ loading: false, error: null, message: `已加载 ${result.data.scenario.title} 演示数据（${result.data.orders_loaded} 条）。` });
       resource.reload();
       onScenarioChange?.();
@@ -49,15 +52,30 @@ export default function ScenarioView({ onScenarioChange }) {
   }
 
   async function importCsv() {
-    if (!selected || !file) return;
+    if (!selected || !file || !preview) return;
     setMutation({ loading: true, error: null, message: null });
     try {
       const csvText = await file.text();
       const result = await apiClient.importScenario({ scenario_id: selected.id, csv_text: csvText });
       setMutation({ loading: false, error: null, message: `已导入 ${result.data.rows_imported} 条 ${selected.title} 数据。` });
+      setPreview(null);
       resource.reload();
       onScenarioChange?.();
     } catch (error) {
+      setMutation({ loading: false, error, message: null });
+    }
+  }
+
+  async function previewCsv() {
+    if (!selected || !file) return;
+    setMutation({ loading: true, error: null, message: null });
+    try {
+      const csvText = await file.text();
+      const result = await apiClient.previewScenarioImport({ scenario_id: selected.id, csv_text: csvText });
+      setPreview(result.data);
+      setMutation({ loading: false, error: null, message: '数据预检完成，确认摘要后即可导入。' });
+    } catch (error) {
+      setPreview(null);
       setMutation({ loading: false, error, message: null });
     }
   }
@@ -69,9 +87,10 @@ export default function ScenarioView({ onScenarioChange }) {
     </div>
     <div className="panel panel--span-7">
       <div className="panel-header"><div><h2>导入自有数据</h2><p>先选行业模板，再下载 CSV 模板并按固定字段上传。</p></div><span>{selected?.title || '未选择'}</span></div>
-      <div className="scenario-import-controls"><label className="field-label">行业模板<select value={selected?.id || ''} disabled={loading} onChange={(event) => setSelectedId(event.target.value)}>{(data?.scenarios || []).map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.title}</option>)}</select></label><label className="field-label">CSV 数据文件<input type="file" accept=".csv,text/csv" disabled={loading} onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div>
-      <div className="actions-row"><button type="button" disabled={!selected || loading} onClick={() => downloadText(`${selected.id}-template.csv`, templateCsv(selected), 'text/csv;charset=utf-8')}>下载 CSV 模板</button><button type="button" disabled={!file || loading} onClick={importCsv}>导入并替换当前数据</button></div>
+      <div className="scenario-import-controls"><label className="field-label">行业模板<select value={selected?.id || ''} disabled={loading} onChange={(event) => { setSelectedId(event.target.value); setPreview(null); }}>{(data?.scenarios || []).map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.title}</option>)}</select></label><label className="field-label">CSV 数据文件<input type="file" accept=".csv,text/csv" disabled={loading} onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); }} /></label></div>
+      <div className="actions-row"><button type="button" disabled={!selected || loading} onClick={() => downloadText(`${selected.id}-template.csv`, templateCsv(selected), 'text/csv;charset=utf-8')}>下载 CSV 模板</button><button type="button" disabled={!file || loading} onClick={previewCsv}>检查数据质量</button><button type="button" disabled={!file || !preview || loading} onClick={importCsv}>确认导入并替换当前数据</button></div>
       {mutation?.message && <p className="form-status">{mutation.message}</p>}{mutation?.error && <p className="form-status form-status--error">{mutation.error.message}</p>}
+      {preview && <div className="data-quality-preview"><div><strong>导入预检</strong><span>{preview.scenario.title} · 不会写入当前数据</span></div><div className="data-quality-preview__grid"><span>有效记录<strong>{formatNumber(preview.rows_valid)}</strong></span><span>日期范围<strong>{preview.date_range.start} 至 {preview.date_range.end}</strong></span><span>覆盖月份<strong>{formatNumber(preview.date_range.months)}</strong></span><span>组织/分类/对象<strong>{formatNumber(preview.dimensions.regions)} / {formatNumber(preview.dimensions.categories)} / {formatNumber(preview.dimensions.customer_types)}</strong></span><span>金额汇总<strong>{formatNumber(preview.metrics.amount)}</strong></span><span>收益汇总<strong>{formatNumber(preview.metrics.profit)}</strong></span></div><ul>{preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       {selected && <div className="scenario-questions"><h3>{selected.title} 示例问题</h3>{selected.question_groups.map((group) => <div key={group.title}><strong>{group.title}</strong><p>{group.questions.join('；')}</p></div>)}</div>}
     </div>
     <div className="panel panel--span-5">

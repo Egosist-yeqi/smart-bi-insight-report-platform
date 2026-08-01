@@ -55,6 +55,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - `POST /api/reports/generate`: report type plus selected modules.
 - `GET /api/anomalies`, `GET /api/forecast`: decision-support analysis.
 - `GET /api/scenarios`, `POST /api/scenarios/{id}/activate`, `POST /api/scenarios/import`: scenario library and CSV replacement.
+- `POST /api/scenarios/import/preview`: strict non-mutating CSV validation plus data coverage summary; use this before import.
 - `GET/PUT/DELETE /api/settings/ai`, `POST /api/settings/ai/test`: optional AI configuration.
 
 Use the live OpenAPI description at `http://localhost:8080/api/docs` instead of guessing request payload fields.

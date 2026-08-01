@@ -3,7 +3,12 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_session
 from app.scenarios.schemas import ScenarioImportInput
-from app.scenarios.service import activate_demo_scenario, get_scenario_library, import_scenario_csv
+from app.scenarios.service import (
+    activate_demo_scenario,
+    get_scenario_library,
+    import_scenario_csv,
+    preview_scenario_import_csv,
+)
 
 
 router = APIRouter()
@@ -17,6 +22,14 @@ def scenarios(request: Request, session: Session = Depends(get_session)) -> dict
 @router.post("/api/scenarios/{scenario_id}/activate")
 def activate_scenario(scenario_id: str, request: Request, session: Session = Depends(get_session)) -> dict:
     return {"data": activate_demo_scenario(session, scenario_id), "request_id": request.state.request_id}
+
+
+@router.post("/api/scenarios/import/preview")
+def preview_import_scenario(payload: ScenarioImportInput, request: Request) -> dict:
+    return {
+        "data": preview_scenario_import_csv(payload.scenario_id, payload.csv_text),
+        "request_id": request.state.request_id,
+    }
 
 
 @router.post("/api/scenarios/import")

@@ -71,6 +71,7 @@ export function createApiClient(fetchImpl = globalThis.fetch) {
     forecast: (options) => request('/api/forecast', options),
     scenarios: (options) => request('/api/scenarios', options),
     activateScenario: (scenarioId, options) => request(`/api/scenarios/${encodeURIComponent(scenarioId)}/activate`, { ...options, method: 'POST' }),
+    previewScenarioImport: (payload, options) => request('/api/scenarios/import/preview', { ...options, method: 'POST', body: payload }),
     importScenario: (payload, options) => request('/api/scenarios/import', { ...options, method: 'POST', body: payload }),
     generateReport: (payload, options) => request('/api/reports/generate', { ...options, method: 'POST', body: payload }),
     getAi: (options) => request('/api/settings/ai', options),

@@ -63,6 +63,25 @@ test('query history requests a fixed bounded page', async () => {
   assert.equal(requestedPath, '/api/query-history?limit=20');
 });
 
+test('scenario import preview uses the non-mutating preview endpoint', async () => {
+  let requestedPath;
+  let requestedOptions;
+  const client = createApiClient(async (path, options) => {
+    requestedPath = path;
+    requestedOptions = options;
+    return new Response(JSON.stringify({ data: { rows_valid: 1 }, request_id: 'preview-request' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  await client.previewScenarioImport({ scenario_id: 'ecommerce', csv_text: 'record_id' });
+
+  assert.equal(requestedPath, '/api/scenarios/import/preview');
+  assert.equal(requestedOptions.method, 'POST');
+  assert.deepEqual(JSON.parse(requestedOptions.body), { scenario_id: 'ecommerce', csv_text: 'record_id' });
+});
+
 test('CSV sanitizes formula-leading values after whitespace and preserves Chinese newlines', () => {
   assert.equal(sanitizeCsvCell(' \t=SUM(A1:A2)'), "' \t=SUM(A1:A2)");
   assert.equal(sanitizeCsvCell('+1'), "'+1");

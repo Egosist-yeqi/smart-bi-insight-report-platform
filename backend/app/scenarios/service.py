@@ -51,6 +51,48 @@ def import_scenario_csv(session: Session, scenario_id: str, csv_text: str) -> di
     return {"scenario": _scenario_payload(scenario, True), "rows_imported": len(orders), "data_source": "imported"}
 
 
+def preview_scenario_import_csv(scenario_id: str, csv_text: str) -> dict:
+    """Validate CSV data and describe its analysis readiness without mutating state."""
+    scenario = _scenario(scenario_id)
+    orders = _parse_csv(scenario, csv_text)
+    dates = [order.order_date for order in orders]
+    regions = {order.region for order in orders}
+    categories = {order.category for order in orders}
+    customer_types = {order.customer_type for order in orders}
+    amount_total = sum((order.amount for order in orders), Decimal("0"))
+    profit_total = sum((order.profit for order in orders), Decimal("0"))
+    month_count = len({(order.order_date.year, order.order_date.month) for order in orders})
+    warnings: list[str] = []
+
+    if len(orders) < 30:
+        warnings.append("数据少于 30 行，排行和异常结果仅适合试用验证。")
+    if month_count < 3:
+        warnings.append("覆盖月份少于 3 个，趋势与预测结果会受到明显限制。")
+    if len(regions) < 2:
+        warnings.append("只有一个组织/区域，无法进行区域对比分析。")
+    if len(categories) < 2:
+        warnings.append("只有一个分类，品类或业务线对比能力受限。")
+    if len(customer_types) < 2:
+        warnings.append("只有一种对象类型，客群/用户结构分析能力受限。")
+    if amount_total and profit_total > amount_total:
+        warnings.append("收益总额高于金额总额，请确认 profit 字段是否使用了正确的金额口径。")
+    if not warnings:
+        warnings.append("数据通过结构与覆盖度预检，可用于当前场景的查询、报告、异常和趋势分析。")
+
+    return {
+        "scenario": {"id": scenario.identifier, "title": scenario.title},
+        "rows_valid": len(orders),
+        "date_range": {"start": min(dates).isoformat(), "end": max(dates).isoformat(), "months": month_count},
+        "dimensions": {
+            "regions": len(regions),
+            "categories": len(categories),
+            "customer_types": len(customer_types),
+        },
+        "metrics": {"amount": float(amount_total), "profit": float(profit_total)},
+        "warnings": warnings,
+    }
+
+
 def _scenario(identifier: str) -> ScenarioDefinition:
     scenario = SCENARIO_BY_ID.get(identifier)
     if scenario is None:
