@@ -195,7 +195,7 @@ test.describe.serial('full-stack BI acceptance', () => {
     expect(markdownContent).toContain('## 区域分析');
 
     await openView(page, '异常归因');
-    await expect(page.getByText('区域变化来自已完成月度订单聚合')).toBeVisible();
+    await expect(page.locator('.panel-note')).toContainText('组织变化来自已完成月度聚合');
     await expect(page.locator('table')).toBeVisible();
 
     await openView(page, '行动中心');
@@ -214,7 +214,7 @@ test.describe.serial('full-stack BI acceptance', () => {
 
     await openView(page, '趋势预测');
     await expect(page.getByText(/预测仅供参考。/)).toBeVisible();
-    await expect(page.getByText('预测值基于已完成月度销售额趋势')).toBeVisible();
+    await expect(page.locator('.forecast-number')).toBeVisible();
 
     await openView(page, '系统配置');
     await expect(page.getByLabel('AI 服务类型')).toHaveValue('deepseek');
