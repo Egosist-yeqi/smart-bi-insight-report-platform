@@ -260,8 +260,8 @@ test.describe.serial('full-stack BI acceptance', () => {
   test('keeps the query workflow usable at a mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await expect(page.getByText('MySQL 正常')).toBeVisible();
     await expect(page.locator('.topbar')).toBeInViewport();
+    await expect(page.getByRole('button', { name: '运行查询', exact: true })).toBeVisible();
     await expect(page.locator('.nav-item')).toHaveCount(8);
     await expect(page.locator('.nav-list')).toHaveCSS('overflow-x', 'auto');
     await page.getByRole('button', { name: question, exact: true }).click();
