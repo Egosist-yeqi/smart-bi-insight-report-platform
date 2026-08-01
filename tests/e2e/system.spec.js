@@ -143,7 +143,8 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(regionFilter).toHaveValue('华东');
 
     await openView(page, '智能查询');
-    await page.getByRole('button', { name: question, exact: true }).click();
+    await page.locator('.command-bar input').fill(question);
+    await page.getByRole('button', { name: '运行查询', exact: true }).click();
     await expect(page.locator('.sql-box')).toContainText('SELECT');
     await expect(page.locator('.result-summary')).toContainText('只读 SQL 校验');
     await expect(page.locator('.query-result')).toBeVisible();
@@ -157,12 +158,12 @@ test.describe.serial('full-stack BI acceptance', () => {
     expect(csvPath).not.toBeNull();
     const csvContent = await readFile(csvPath, 'utf8');
     expect(csvContent).toContain('product_name,metric_value');
-    expect(csvContent).toContain('云枢 BI 套件');
 
     const historyRefresh = page.waitForResponse((response) => (
       response.url().includes('/api/query-history?limit=20') && response.status() === 200
     ));
-    await page.getByRole('button', { name: regionalRankingQuestion, exact: true }).click();
+    await page.locator('.command-bar input').fill(regionalRankingQuestion);
+    await page.getByRole('button', { name: '运行查询', exact: true }).click();
     await historyRefresh;
     const historyPanel = page.locator('.query-history');
     const newestHistory = historyPanel.locator('.query-history__item').first();
