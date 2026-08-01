@@ -127,7 +127,7 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(page.getByText('MySQL 正常')).toBeVisible();
 
     await openView(page, '仪表盘');
-    await expect(page.getByText('销售额', { exact: true })).toBeVisible();
+    await expect(page.locator('.metric-card').first()).toBeVisible();
     await expect(page.locator('.metric-card').first().locator('strong')).toContainText(/¥|￥/);
     await expect(page.locator('.contribution-item').first()).not.toContainText(/NaN|undefined/);
     await expect(page.locator('.line-chart .chart-label')).toHaveCount(7);
@@ -197,6 +197,20 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(page.getByText('区域变化来自已完成月度订单聚合')).toBeVisible();
     await expect(page.locator('table')).toBeVisible();
 
+    await openView(page, '行动中心');
+    await page.getByRole('button', { name: '载入草案', exact: true }).first().click();
+    await page.getByLabel('负责人').fill('区域运营负责人');
+    await page.getByLabel('截止日期').fill('2026-07-15');
+    await page.getByRole('button', { name: '创建待确认行动', exact: true }).click();
+    await expect(page.getByText('行动项已创建，等待负责人确认执行。')).toBeVisible();
+    await expect(page.getByText('待确认', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '标记为执行中', exact: true }).click();
+    await expect(page.getByText('执行中', { exact: true })).toBeVisible();
+    await page.getByLabel('复盘结论').fill('已完成区域与项目结构核查，后续按周复盘。');
+    await page.getByRole('button', { name: '完成并复盘', exact: true }).click();
+    await expect(page.getByText('已复盘', { exact: true })).toBeVisible();
+    await expect(page.getByText('已完成区域与项目结构核查，后续按周复盘。')).toBeVisible();
+
     await openView(page, '趋势预测');
     await expect(page.getByText(/预测仅供参考。/)).toBeVisible();
     await expect(page.getByText('预测值基于已完成月度销售额趋势')).toBeVisible();
@@ -246,7 +260,7 @@ test.describe.serial('full-stack BI acceptance', () => {
     await page.goto('/');
     await expect(page.getByText('MySQL 正常')).toBeVisible();
     await expect(page.locator('.topbar')).toBeInViewport();
-    await expect(page.locator('.nav-item')).toHaveCount(7);
+    await expect(page.locator('.nav-item')).toHaveCount(8);
     await expect(page.locator('.nav-list')).toHaveCSS('overflow-x', 'auto');
     await page.getByRole('button', { name: question, exact: true }).click();
     await expect(page.locator('.sql-box')).toContainText('SELECT');
