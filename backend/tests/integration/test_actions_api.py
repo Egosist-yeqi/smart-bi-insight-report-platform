@@ -67,6 +67,6 @@ def test_action_api_rejects_unknown_fields_and_returns_not_found(db_session):
     app.dependency_overrides.clear()
 
     assert invalid.status_code == 422
-    assert "untrusted" not in invalid.text
+    assert "value" not in invalid.text
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "ACTION_NOT_FOUND"
