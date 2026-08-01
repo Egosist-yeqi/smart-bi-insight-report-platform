@@ -264,7 +264,8 @@ test.describe.serial('full-stack BI acceptance', () => {
     await expect(page.getByRole('button', { name: '运行查询', exact: true })).toBeVisible();
     await expect(page.locator('.nav-item')).toHaveCount(8);
     await expect(page.locator('.nav-list')).toHaveCSS('overflow-x', 'auto');
-    await page.getByRole('button', { name: question, exact: true }).click();
+    await page.locator('.command-bar input').fill(question);
+    await page.getByRole('button', { name: '运行查询', exact: true }).click();
     await expect(page.locator('.sql-box')).toContainText('SELECT');
     const historyPanel = page.locator('.query-history');
     await historyPanel.scrollIntoViewIfNeeded();
