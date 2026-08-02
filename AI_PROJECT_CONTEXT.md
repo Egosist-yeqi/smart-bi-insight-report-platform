@@ -9,6 +9,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - **Public entry:** `http://localhost:8080`; API docs: `/api/docs`.
 - **Stack:** React 19 + Vite frontend, Nginx reverse proxy, FastAPI backend, SQLAlchemy/Alembic, MySQL 8.4, Docker Compose.
 - **Run:** Windows users can double-click `启动智能BI系统.cmd`. Stop with `停止智能BI系统.cmd`.
+- **Demo assets:** `文档/demo/全功能演示素材库.md` is the canonical 12-minute walkthrough. Its companion CSV is `文档/demo/scenarios/自有数据导入示例_电商.csv`; it is synthetic only and may be used for import-preview/import demonstrations.
 
 ## Product boundaries
 
@@ -84,6 +85,7 @@ Invoke-RestMethod http://127.0.0.1:8080/api/health
 ## Documentation and delivery rules
 
 - Put all new human-facing project material under `文档/`; do not recreate a `docs/` directory.
+- Keep the feature-to-demo mapping current in `文档/demo/全功能演示素材库.md`; when a user-visible flow changes, update the relevant role task card and scenario material in the same change.
 - Update `文档/系统设计说明书.md`, `文档/数据库与数据字典.md`, `文档/测试与验收报告.md`, and demo/defense material when changing a user-visible behavior.
 - Preserve Chinese text as UTF-8 and keep links valid after any move.
 - Never commit `.env`, generated secrets, real API keys, database volumes, or real business data.
