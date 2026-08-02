@@ -251,6 +251,19 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .data-quality-preview__grid span { display: grid; gap: 4px; color: #6e6e73; font-size: 11px; }
 .data-quality-preview__grid strong { color: #1d1d1f; font-size: 13px; font-weight: 670; overflow-wrap: anywhere; }
 .data-quality-preview ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; }
+.batch-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.batch-list article { display: grid; gap: 12px; padding: 15px; border: 1px solid #e4e4e8; border-radius: 14px; background: #fafafa; }
+.batch-list article > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.batch-list strong { color: #1d1d1f; font-size: 13px; }
+.batch-source { padding: 4px 7px; border-radius: 999px; font-size: 11px; font-weight: 680; }
+.batch-source--demo { background: #eaf2ff; color: #0066cc; }
+.batch-source--imported { background: #e8f8f0; color: #098451; }
+.batch-list dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.batch-list dl div { display: grid; gap: 4px; min-width: 0; }
+.batch-list dt { color: #86868b; font-size: 11px; }
+.batch-list dd { margin: 0; color: #3a3a3c; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.batch-list p { display: grid; gap: 4px; margin: 0; color: #86868b; font-size: 11px; }
+.batch-list code { overflow-wrap: anywhere; color: #0066cc; font-size: 11px; }
 .metric-governance { display: grid; gap: 17px; }
 .metric-governance .panel-header { margin-bottom: 0; }
 .metric-governance__scope { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -403,6 +416,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; box-shadow: none !important
   .action-summary { width: 100%; min-width: 0; }
   .action-item dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .action-item__controls { grid-template-columns: 1fr; }
+  .batch-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
   body { min-width: 0; overflow-x: hidden; }
@@ -420,6 +434,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; box-shadow: none !important
   .data-quality-preview__grid { grid-template-columns: 1fr; }
   .metric-governance__definitions > div { grid-template-columns: 1fr; }
   .action-form, .action-summary, .action-item dl { grid-template-columns: 1fr; }
+  .batch-list dl { grid-template-columns: 1fr; }
   .command-bar { border-radius: 16px; }
   .panel { padding: 16px; border-radius: 17px; }
   .query-history__item { grid-template-columns: minmax(0, 1fr); gap: 8px; }

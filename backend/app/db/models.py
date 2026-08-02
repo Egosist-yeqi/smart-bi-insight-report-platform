@@ -122,6 +122,25 @@ class ScenarioState(Base):
     )
 
 
+class DataImportBatch(Base):
+    __tablename__ = "data_import_batch"
+    __table_args__ = (
+        Index("ix_data_import_batch_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    scenario_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_label: Mapped[str] = mapped_column(String(160), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    data_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
 class QueryHistory(Base):
     __tablename__ = "query_history"
 

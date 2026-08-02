@@ -98,5 +98,9 @@ export default function ScenarioView({ onScenarioChange }) {
       <DataTable rows={fieldRows} />
       {selected && <div className="scenario-mapping"><strong>{selected.title} 语义映射</strong>{selected.field_mappings.map((mapping) => <span key={mapping.field}>{mapping.field}：{mapping.label}</span>)}</div>}
     </div>
+    <div className="panel panel--span-12">
+      <div className="panel-header"><div><h2>数据版本追溯</h2><p>每次实际加载或确认导入都会记录数据来源、覆盖范围与指纹；预检不会创建记录。</p></div><span>最近 {formatNumber(data?.batches?.length || 0)} 批</span></div>
+      {data?.batches?.length ? <div className="batch-list">{data.batches.map((batch) => <article key={batch.id}><div><strong>{batch.source_label}</strong><span className={`batch-source batch-source--${batch.source_type}`}>{batch.source_type === 'demo' ? '演示数据' : '自有 CSV'}</span></div><dl><div><dt>记录数</dt><dd>{formatNumber(batch.row_count)}</dd></div><div><dt>数据范围</dt><dd>{batch.start_date} 至 {batch.end_date}</dd></div><div><dt>导入时间</dt><dd>{String(batch.created_at).replace('T', ' ').slice(0, 16)}</dd></div></dl><p><span>SHA-256</span><code>{batch.data_fingerprint}</code></p></article>)}</div> : <div className="empty-state">历史数据暂未建立批次记录。下一次加载演示数据或确认导入 CSV 后会自动出现。</div>}
+    </div>
   </>}</AsyncPanel></section>;
 }

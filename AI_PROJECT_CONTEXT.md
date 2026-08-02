@@ -17,6 +17,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 3. Imported data is deliberately constrained to 11 CSV fields: `record_id,date,region,province,item_id,item_name,category,customer_type,quantity,amount,profit`.
 4. Local rule mode must keep working without an API key. AI is optional enrichment, not a prerequisite.
 5. Action suggestions are not approved work. Only user-created action items are persisted; closing an action requires a non-empty review note.
+6. Data imports and demo scenario loads create lineage records with source metadata and a SHA-256 fingerprint, but never duplicate uploaded CSV content for batch history.
 5. No production authentication, RBAC, multi-tenancy, public deployment, or arbitrary-schema Text-to-SQL is implemented.
 
 ## Code map
@@ -58,7 +59,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - `POST /api/reports/generate`: report type plus selected modules.
 - `GET /api/anomalies`, `GET /api/forecast`: decision-support analysis.
 - `GET/POST /api/actions`, `PATCH /api/actions/{id}`: human-confirmed action tracking; completion requires `review_notes`.
-- `GET /api/scenarios`, `POST /api/scenarios/{id}/activate`, `POST /api/scenarios/import`: scenario library and CSV replacement.
+- `GET /api/scenarios`, `POST /api/scenarios/{id}/activate`, `POST /api/scenarios/import`: scenario library, recent data batch lineage and CSV replacement.
 - `POST /api/scenarios/import/preview`: strict non-mutating CSV validation plus data coverage summary; use this before import.
 - `GET/PUT/DELETE /api/settings/ai`, `POST /api/settings/ai/test`: optional AI configuration.
 

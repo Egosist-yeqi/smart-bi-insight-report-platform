@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.db.models import QueryHistory, SalesOrder, ScenarioState
+from app.db.models import DataImportBatch, QueryHistory, SalesOrder, ScenarioState
 from app.db.seed import seed_database
 from app.db.session import get_session
 from app.main import create_app
@@ -34,6 +34,11 @@ def test_scenario_library_switches_to_a_complete_hospital_demo_dataset(db_sessio
     assert db_session.scalar(select(ScenarioState.scenario_id)) == "hospital"
     assert db_session.scalar(select(ScenarioState.data_source)) == "demo"
     assert "专家门诊" in set(db_session.scalars(select(SalesOrder.product_name)))
+    batch = db_session.scalar(select(DataImportBatch))
+    assert batch is not None
+    assert batch.source_type == "demo"
+    assert batch.row_count == 540
+    assert len(batch.data_fingerprint) == 64
     app.dependency_overrides.clear()
 
 
@@ -66,6 +71,10 @@ def test_scenario_csv_import_replaces_active_dataset_and_validates_template(db_s
     assert db_session.scalar(select(func.count()).select_from(QueryHistory)) == 0
     assert db_session.scalar(select(ScenarioState.scenario_id)) == "banking"
     assert db_session.scalar(select(ScenarioState.data_source)) == "imported"
+    batch = db_session.scalar(select(DataImportBatch))
+    assert batch is not None
+    assert batch.source_type == "imported"
+    assert batch.row_count == 1
     app.dependency_overrides.clear()
 
 
@@ -96,6 +105,7 @@ def test_scenario_csv_preview_validates_analysis_coverage_without_mutating_data(
     assert data["metrics"] == {"amount": 90000.0, "profit": 42000.0}
     assert db_session.scalar(select(func.count()).select_from(SalesOrder)) == baseline_count
     assert db_session.scalar(select(func.count()).select_from(QueryHistory)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DataImportBatch)) == 0
     assert db_session.get(ScenarioState, 1) is None
     app.dependency_overrides.clear()
 

@@ -1,13 +1,14 @@
 import csv
+import hashlib
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from io import StringIO
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.db.models import QueryHistory, SalesOrder, ScenarioState
+from app.db.models import DataImportBatch, QueryHistory, SalesOrder, ScenarioState
 from app.scenarios.catalog import CSV_HEADERS, SCENARIO_BY_ID, SCENARIOS, ScenarioDefinition
 
 
@@ -29,13 +30,18 @@ def get_scenario_library(session: Session) -> dict:
         "active_scenario_id": active_id,
         "data_source": data_source,
         "scenarios": [_scenario_payload(item, item.identifier == active_id) for item in SCENARIOS],
+        "batches": [_batch_payload(item) for item in session.scalars(
+            select(DataImportBatch).order_by(DataImportBatch.id.desc()).limit(8)
+        )],
     }
 
 
 def activate_demo_scenario(session: Session, scenario_id: str) -> dict:
     scenario = _scenario(scenario_id)
     _clear_dataset(session)
-    session.add_all(_demo_orders(scenario))
+    orders = _demo_orders(scenario)
+    session.add_all(orders)
+    _record_batch(session, scenario, "demo", orders)
     _set_state(session, scenario.identifier, "demo")
     session.commit()
     return {"scenario": _scenario_payload(scenario, True), "orders_loaded": 540, "data_source": "demo"}
@@ -46,6 +52,7 @@ def import_scenario_csv(session: Session, scenario_id: str, csv_text: str) -> di
     orders = _parse_csv(scenario, csv_text)
     _clear_dataset(session)
     session.add_all(orders)
+    _record_batch(session, scenario, "imported", orders)
     _set_state(session, scenario.identifier, "imported")
     session.commit()
     return {"scenario": _scenario_payload(scenario, True), "rows_imported": len(orders), "data_source": "imported"}
@@ -226,3 +233,38 @@ def _set_state(session: Session, scenario_id: str, data_source: str) -> None:
     else:
         state.scenario_id = scenario_id
         state.data_source = data_source
+
+
+def _record_batch(
+    session: Session, scenario: ScenarioDefinition, source_type: str, orders: list[SalesOrder]
+) -> None:
+    dates = [order.order_date for order in orders]
+    fingerprint_source = "\n".join(
+        f"{order.external_order_id}|{order.order_date.isoformat()}|{order.amount}|{order.profit}"
+        for order in sorted(orders, key=lambda item: item.external_order_id)
+    )
+    session.add(
+        DataImportBatch(
+            source_type=source_type,
+            scenario_id=scenario.identifier,
+            source_label=f"{scenario.title}{'演示数据' if source_type == 'demo' else '自有 CSV'}",
+            row_count=len(orders),
+            start_date=min(dates),
+            end_date=max(dates),
+            data_fingerprint=hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest(),
+        )
+    )
+
+
+def _batch_payload(batch: DataImportBatch) -> dict:
+    return {
+        "id": batch.id,
+        "source_type": batch.source_type,
+        "scenario_id": batch.scenario_id,
+        "source_label": batch.source_label,
+        "row_count": batch.row_count,
+        "start_date": batch.start_date.isoformat() if batch.start_date else None,
+        "end_date": batch.end_date.isoformat() if batch.end_date else None,
+        "data_fingerprint": batch.data_fingerprint,
+        "created_at": batch.created_at.isoformat(),
+    }
