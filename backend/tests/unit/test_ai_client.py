@@ -125,6 +125,53 @@ async def test_client_forces_off_private_network_for_official_deepseek_endpoint(
 
 
 @pytest.mark.asyncio
+async def test_client_accepts_proxy_fake_ip_for_official_deepseek_https():
+    async def fake_ip_resolver(_hostname: str, _port: int) -> set[str]:
+        return {"198.18.0.61"}
+
+    def assert_pinned_fake_ip(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "198.18.0.61"
+        assert request.headers["host"] == "api.deepseek.com"
+        assert request.extensions["sni_hostname"] == "api.deepseek.com"
+        return _any_url_chat_completion(request)
+
+    client = OpenAICompatibleClient(
+        base_url="https://api.deepseek.com",
+        api_key="test-client-key",
+        model="deepseek-v4-flash",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(assert_pinned_fake_ip),
+        dns_resolver=fake_ip_resolver,
+    )
+
+    intent = await client.resolve_intent("本月各区域销售额排名如何？")
+
+    assert intent.metric == "amount"
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_proxy_fake_ip_for_custom_provider():
+    async def fake_ip_resolver(_hostname: str, _port: int) -> set[str]:
+        return {"198.18.0.61"}
+
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("custom provider fake IP reached transport")
+        ),
+        dns_resolver=fake_ip_resolver,
+    )
+
+    with pytest.raises(AIClientError) as error:
+        await client.resolve_intent("任何问题")
+
+    assert error.value.code == "AI_SSRF_BLOCKED"
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_non_json_text_outside_deepseek_wrappers():
     client = OpenAICompatibleClient(
         base_url="https://provider.example/v1",

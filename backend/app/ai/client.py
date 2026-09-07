@@ -23,6 +23,7 @@ NUMERIC_TOKEN = re_compile(r"\d[\d,]*(?:\.\d+)?%?")
 THINKING_BLOCK = re_compile(r"<think>.*?</think>", DOTALL | IGNORECASE)
 JSON_FENCE = re_compile(r"^```(?:json)?\s*(.*?)\s*```$", DOTALL | IGNORECASE)
 DEEPSEEK_HOSTS = frozenset({"api.deepseek.com", "api.deepseek.cn"})
+PROXY_FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/15")
 DNSResolver = Callable[[str, int], Awaitable[set[str]]]
 
 
@@ -225,7 +226,8 @@ class OpenAICompatibleClient:
         except ValueError as exc:
             raise AIClientError("AI_BAD_RESPONSE", "AI 服务地址无法解析。") from exc
         if not self.allow_private_network and any(
-            not address.is_global for address in parsed_addresses
+            not _is_safe_resolved_address(parsed, address)
+            for address in parsed_addresses
         ):
             raise AIClientError("AI_SSRF_BLOCKED", "AI 服务地址不安全。", status_code=400)
         selected = min(parsed_addresses, key=lambda address: (address.version, int(address)))
@@ -293,6 +295,18 @@ def _origin_from_parsed(parsed: SplitResult) -> tuple[str, str, int]:
         parsed.scheme,
         parsed.hostname or "",
         parsed.port or (443 if parsed.scheme == "https" else 80),
+    )
+
+
+def _is_safe_resolved_address(
+    parsed: SplitResult, address: ipaddress.IPv4Address | ipaddress.IPv6Address
+) -> bool:
+    if address.is_global:
+        return True
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in DEEPSEEK_HOSTS
+        and address in PROXY_FAKE_IP_NETWORK
     )
 
 
