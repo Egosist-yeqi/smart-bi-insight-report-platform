@@ -34,7 +34,7 @@ Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动
 
 ## Windows 本地运行
 
-系统使用 Docker Compose 运行 Vue 3 应用入口、FastAPI 后端和 MySQL 8.4 LTS（MySQL 8.0 系列）。现有工作台页面以兼容视图形式保留，确保场景、查询、报告、异常、预测、行动、配置等功能不变。MySQL 不需要单独安装，端口只绑定到本机 `127.0.0.1:3307`，不会暴露到局域网。
+系统使用 Docker Compose 运行 Vue 3 应用入口、FastAPI 后端和 MySQL 8.4 LTS。现有工作台页面以兼容视图形式保留，确保场景、查询、报告、异常、预测、行动、配置等功能不变。MySQL 不需要单独安装，端口只绑定到本机 `127.0.0.1:3307`，不会暴露到局域网。
 
 ### 前置条件
 
@@ -71,7 +71,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 - 应用：`http://localhost:8080`
 - API 文档：`http://localhost:8080/api/docs`
 
-> **MySQL 版本说明：** 项目保留 MySQL 8.4 LTS。它属于原始技术方向指定的 MySQL 8.0 系列，维护性更好；不需要、也不会将现有数据卷降级。详见 [技术约束复查与修订说明](文档/技术约束复查与修订说明.md)。
+> **MySQL 版本说明：** 原技术方向写为 MySQL 8.0；项目保留更新的 MySQL 8.4 LTS，维护性更好。不需要、也不会将现有数据卷降级。详见 [技术约束复查与修订说明](文档/技术约束复查与修订说明.md)。
 
 ### 停止、重置和测试
 
@@ -151,7 +151,7 @@ PDF 项目说明中给出的技术方向包括：
 
 - AI 核心：Python、Text-to-SQL、大模型、Agent 技术
 - 前端：Vue.js
-- 数据库：MySQL 8.4 LTS（MySQL 8.0 系列）
+- 数据库：MySQL 8.4 LTS
 - 服务与部署：Nginx
 
 当前版本使用 Vue 3 应用入口和渐进式兼容工作台，由 Nginx 提供静态资源和 `/api` 代理；FastAPI 提供查询、报告、异常、预测和 AI 配置接口，MySQL 8.4 LTS 保存业务数据、指标、模板、查询历史和加密配置。PyTorch CPU 预测适配器在显式启用时参与趋势推理；模型服务只生成受控分析意图，不能直接执行 SQL。

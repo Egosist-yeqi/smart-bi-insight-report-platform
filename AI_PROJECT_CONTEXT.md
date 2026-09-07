@@ -7,7 +7,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - **Purpose:** local, demonstrable intelligent BI platform for Project 11. It turns controlled Chinese business questions into safe data results, charts, analysis summaries, reports, anomaly clues, forecasts, and scenario-based decision prompts.
 - **Repository root:** this directory. Local Windows runnable copy is normally `E:\smart-bi-insight-report-platform`.
 - **Public entry:** `http://localhost:8080`; API docs: `/api/docs`.
-- **Stack:** Vue 3 application entry + Vite, React workspace compatibility views during staged migration, Nginx reverse proxy, FastAPI backend, optional PyTorch CPU forecast adapter, SQLAlchemy/Alembic, MySQL 8.4 LTS (MySQL 8.0 series), Docker Compose.
+- **Stack:** Vue 3 application entry + Vite, React workspace compatibility views during staged migration, Nginx reverse proxy, FastAPI backend, optional PyTorch CPU forecast adapter, SQLAlchemy/Alembic, MySQL 8.4 LTS, Docker Compose.
 - **Run:** Windows users can double-click `启动智能BI系统.cmd`. Stop with `停止智能BI系统.cmd`.
 - **Demo assets:** `文档/demo/全功能演示素材库.md` is the canonical 12-minute walkthrough. Its companion CSV is `文档/demo/scenarios/自有数据导入示例_电商.csv`; it is synthetic only and may be used for import-preview/import demonstrations.
 
@@ -50,7 +50,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - AI keys are encrypted server-side, masked in responses and never committed. DeepSeek default UX should ask only for the key; other providers expose all fields.
 - Local addresses and redirects are restricted unless the user explicitly allows private network access.
 - Docker ports are loopback-only. Do not expose MySQL or the frontend to LAN by default.
-- Keep the MySQL 8.4 LTS image; it satisfies the MySQL 8.0-series project direction without a needless volume migration.
+- Keep the MySQL 8.4 LTS image; it is the newer MySQL 8 LTS release and avoids a needless volume migration.
 - Tests use an isolated Compose project and data volume. Never make test reset or destroy the normal running database.
 - Scenario questions are intentional product templates. Keep each scenario's terms, intent bindings, root-cause checks and recommendation actions aligned.
 
