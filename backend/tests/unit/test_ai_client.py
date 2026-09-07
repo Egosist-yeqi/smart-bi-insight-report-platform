@@ -457,6 +457,34 @@ async def test_client_accepts_only_structured_narratives_grounded_in_local_facts
 
 
 @pytest.mark.asyncio
+async def test_client_accepts_qualitative_narrative_without_repeating_numbers():
+    narrative = "本期表现承压，建议优先核查区域结构与重点产品贡献。"
+    client = OpenAICompatibleClient(
+        base_url="https://provider.example/v1",
+        api_key="test-client-key",
+        model="demo-model",
+        timeout_seconds=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": json.dumps({"narrative": narrative})}}
+                    ]
+                },
+            )
+        ),
+        dns_resolver=_global_resolver,
+    )
+
+    result = await client.generate_narrative(
+        "概览", "销售额1,200.00元，毛利率20.00%。"
+    )
+
+    assert result == narrative
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "content",
     [

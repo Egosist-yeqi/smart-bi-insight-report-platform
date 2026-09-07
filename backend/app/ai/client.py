@@ -118,8 +118,10 @@ class OpenAICompatibleClient:
                     "role": "system",
                     "content": (
                         "Return only one JSON object with exactly one key, narrative. The Chinese "
-                        "narrative must preserve every numeric token from the supplied local facts "
-                        "exactly and must not invent any measurements."
+                        "narrative should add a short qualitative business interpretation without "
+                        "Arabic numerals. The verified local facts are displayed separately. If a "
+                        "numeric token is necessary, copy it exactly from the supplied local facts. "
+                        "Never invent, reformat, or repeat measurements."
                     ),
                 },
                 {"role": "user", "content": f"标题：{title}\n本地事实：{local_facts}"},
@@ -134,7 +136,9 @@ class OpenAICompatibleClient:
                 raise ValueError("empty narrative")
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise AIClientError("AI_BAD_RESPONSE", "AI 返回的报告叙述无效。") from exc
-        if Counter(NUMERIC_TOKEN.findall(narrative)) != Counter(NUMERIC_TOKEN.findall(local_facts)):
+        narrative_numbers = Counter(NUMERIC_TOKEN.findall(narrative))
+        fact_numbers = Counter(NUMERIC_TOKEN.findall(local_facts))
+        if narrative_numbers - fact_numbers:
             raise AIClientError("AI_BAD_RESPONSE", "AI 报告叙述包含未经验证的数值。")
         return narrative
 
