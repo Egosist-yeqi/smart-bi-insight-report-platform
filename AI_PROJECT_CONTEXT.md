@@ -48,7 +48,8 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - SQL must remain read-only, parameterized/controlled, and limited to approved metrics/dimensions.
 - API errors are normalized with a safe error code/message and `request_id`; never echo sensitive input.
 - AI keys are encrypted server-side, masked in responses and never committed. DeepSeek default UX should ask only for the key; other providers expose all fields.
-- Local addresses and redirects are restricted unless the user explicitly allows private network access.
+- Local addresses and redirects are restricted unless the user explicitly allows private network access. The exact DeepSeek HTTPS host allowlist may accept `198.18.0.0/15` proxy Fake-IP addresses; do not broaden this exception to custom providers or other private ranges.
+- Report narratives always append to verified local facts. AI may omit numbers; every numeric token it does emit must already occur in the local facts and may not be repeated more often.
 - Docker ports are loopback-only. Do not expose MySQL or the frontend to LAN by default.
 - Keep the MySQL 8.4 LTS image; it is the newer MySQL 8 LTS release and avoids a needless volume migration.
 - Tests use an isolated Compose project and data volume. Never make test reset or destroy the normal running database.

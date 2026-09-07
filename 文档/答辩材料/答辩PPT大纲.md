@@ -61,7 +61,7 @@
 
 ## 第 10 页：测试与验收
 
-- 后端 Pytest 135 项、前端单测 15 项、Playwright 8 项的完整回归记录。
+- 后端 Pytest 151 项、前端 Node 测试 17 项、Playwright 8 项的最新完整回归记录。
 - 生产构建、Docker 服务健康、Chrome 端到端流程。
 - 现场展示 GitHub、启动器与文档总览。
 
