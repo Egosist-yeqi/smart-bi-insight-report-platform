@@ -120,3 +120,24 @@ def test_forecast_uses_deterministic_ols_prediction_and_month_label(db_session):
     assert forecast.prediction.basis == (
         "使用3个种子月度销售额进行普通最小二乘（OLS）线性回归；斜率为100.00元/月。"
     )
+
+
+def test_torch_forecast_safely_falls_back_when_optional_runtime_is_unavailable(
+    db_session, monkeypatch
+):
+    from app.analytics import service
+
+    db_session.add_all(
+        [
+            _order("TORCH-202501", date(2025, 1, 1), Decimal("100"), "预测区域"),
+            _order("TORCH-202502", date(2025, 2, 1), Decimal("200"), "预测区域"),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(service, "torch_forecast_linear", lambda _values: None)
+
+    forecast = service.forecast_next_month(db_session, engine="torch")
+
+    assert forecast.prediction is not None
+    assert forecast.prediction.amount == Decimal("300.00")
+    assert "已安全回退 OLS" in forecast.prediction.basis

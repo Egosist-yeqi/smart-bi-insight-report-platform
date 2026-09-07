@@ -7,7 +7,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - **Purpose:** local, demonstrable intelligent BI platform for Project 11. It turns controlled Chinese business questions into safe data results, charts, analysis summaries, reports, anomaly clues, forecasts, and scenario-based decision prompts.
 - **Repository root:** this directory. Local Windows runnable copy is normally `E:\smart-bi-insight-report-platform`.
 - **Public entry:** `http://localhost:8080`; API docs: `/api/docs`.
-- **Stack:** React 19 + Vite frontend, Nginx reverse proxy, FastAPI backend, SQLAlchemy/Alembic, MySQL 8.4, Docker Compose.
+- **Stack:** Vue 3 application entry + Vite, React workspace compatibility views during staged migration, Nginx reverse proxy, FastAPI backend, optional PyTorch CPU forecast adapter, SQLAlchemy/Alembic, MySQL 8.4 LTS (MySQL 8.0 series), Docker Compose.
 - **Run:** Windows users can double-click `启动智能BI系统.cmd`. Stop with `停止智能BI系统.cmd`.
 - **Demo assets:** `文档/demo/全功能演示素材库.md` is the canonical 12-minute walkthrough. Its companion CSV is `文档/demo/scenarios/自有数据导入示例_电商.csv`; it is synthetic only and may be used for import-preview/import demonstrations.
 
@@ -19,13 +19,15 @@ Read this file before modifying the project. It is a concise, implementation-ori
 4. Local rule mode must keep working without an API key. AI is optional enrichment, not a prerequisite.
 5. Action suggestions are not approved work. Only user-created action items are persisted; closing an action requires a non-empty review note.
 6. Data imports and demo scenario loads create lineage records with source metadata and a SHA-256 fingerprint, but never duplicate uploaded CSV content for batch history.
-5. No production authentication, RBAC, multi-tenancy, public deployment, or arbitrary-schema Text-to-SQL is implemented.
+7. `FORECAST_ENGINE=ols` is the dependency-free default. `FORECAST_ENGINE=torch` needs an image built with `INSTALL_TORCH=true`; lack of the optional runtime must safely fall back to OLS.
+8. No production authentication, RBAC, multi-tenancy, public deployment, or arbitrary-schema Text-to-SQL is implemented.
 
 ## Code map
 
 | Location | Responsibility |
 | --- | --- |
-| `src/App.jsx` | Application state, navigation and async resources. |
+| `src/main.js`, `src/VueApplication.vue` | Vue 3 application bootstrap and mount lifecycle. |
+| `src/App.jsx` | Compatibility workspace state, navigation and async resources during staged Vue migration. |
 | `src/views/` | Scenario, Query, Dashboard, Report, Anomaly, Forecast, Action and Config screens. |
 | `src/components/AppShell.jsx` | Navigation, top command bar and status display. |
 | `src/styles.css` | Apple-inspired premium light workspace styling; preserve responsive rules. |
@@ -48,6 +50,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - AI keys are encrypted server-side, masked in responses and never committed. DeepSeek default UX should ask only for the key; other providers expose all fields.
 - Local addresses and redirects are restricted unless the user explicitly allows private network access.
 - Docker ports are loopback-only. Do not expose MySQL or the frontend to LAN by default.
+- Keep the MySQL 8.4 LTS image; it satisfies the MySQL 8.0-series project direction without a needless volume migration.
 - Tests use an isolated Compose project and data volume. Never make test reset or destroy the normal running database.
 - Scenario questions are intentional product templates. Keep each scenario's terms, intent bindings, root-cause checks and recommendation actions aligned.
 
@@ -58,7 +61,7 @@ Read this file before modifying the project. It is a concise, implementation-ori
 - `POST /api/query`: `{ question }` -> safe SQL, rows, summary, chart recommendation and warnings.
 - `GET /api/dashboard`: optional `region`, `category`, `customer_type` filters.
 - `POST /api/reports/generate`: report type plus selected modules.
-- `GET /api/anomalies`, `GET /api/forecast`: decision-support analysis.
+- `GET /api/anomalies`, `GET /api/forecast`: decision-support analysis; forecast exposes either OLS or explicitly enabled PyTorch CPU inference basis.
 - `GET/POST /api/actions`, `PATCH /api/actions/{id}`: human-confirmed action tracking; completion requires `review_notes`.
 - `GET /api/scenarios`, `POST /api/scenarios/{id}/activate`, `POST /api/scenarios/import`: scenario library, recent data batch lineage and CSV replacement.
 - `POST /api/scenarios/import/preview`: strict non-mutating CSV validation plus data coverage summary; use this before import.

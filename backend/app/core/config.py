@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from cryptography.fernet import Fernet
 from pydantic import ValidationError, field_validator
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     query_timeout_seconds: int = 5
     ai_default_timeout_seconds: int = 30
     frontend_origin: str = "http://localhost:8080"
+    forecast_engine: Literal["ols", "torch"] = "ols"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

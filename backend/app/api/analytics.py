@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.analytics.service import detect_anomalies, forecast_next_month
+from app.core.config import get_settings
 from app.db.session import get_session
 
 router = APIRouter()
@@ -18,7 +19,7 @@ def anomalies(request: Request, session: Session = Depends(get_session)) -> dict
 
 @router.get("/api/forecast")
 def forecast(request: Request, session: Session = Depends(get_session)) -> dict:
-    result = forecast_next_month(session)
+    result = forecast_next_month(session, engine=get_settings().forecast_engine)
     return {
         "data": result.model_dump(mode="json"),
         "request_id": request.state.request_id,

@@ -29,7 +29,7 @@
 
 ## 第 5 页：系统架构
 
-使用 [系统设计说明书](../系统设计说明书.md) 中的架构图：React/Vite -> Nginx -> FastAPI -> MySQL，DeepSeek 或兼容 AI 作为可选增强层。
+使用 [系统设计说明书](../系统设计说明书.md) 中的架构图：Vue 3/Vite 应用入口 -> Nginx -> FastAPI -> MySQL 8.4 LTS，DeepSeek 或兼容 AI 作为可选增强层；PyTorch CPU 预测适配器只在显式开启时使用。
 
 强调：本地规则模式无需 Key 也能完整演示；AI 接入失败会回退，不影响基础工作流。
 

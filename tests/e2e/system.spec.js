@@ -61,7 +61,7 @@ test('serves production assets, SPA fallback, and the backend through Nginx', as
   const fallbackResponse = await request.get('/query/history/deep-link');
   expect(fallbackResponse.status()).toBe(200);
   expect(fallbackResponse.headers()['content-type']).toContain('text/html');
-  expect(await fallbackResponse.text()).toContain('<div id="root"></div>');
+  expect(await fallbackResponse.text()).toContain('<div id="app"></div>');
 
   const healthResponse = await request.get('/api/health');
   expect(healthResponse.status()).toBe(200);

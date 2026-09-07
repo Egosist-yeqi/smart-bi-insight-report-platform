@@ -2,7 +2,7 @@
 
 ## 一、项目定位
 
-本项目面向中小企业经营分析场景，将销售订单数据、指标监控、自然语言查询、经营报告、异常归因和趋势预测整合为一套可本地运行的 BI 平台。答辩时应强调：它不是只展示页面的原型，而是带有 MySQL 数据库、FastAPI 后端、React 前端、可配置 AI 服务和自动化测试的完整系统。
+本项目面向中小企业经营分析场景，将销售订单数据、指标监控、自然语言查询、经营报告、异常归因和趋势预测整合为一套可本地运行的 BI 平台。答辩时应强调：它不是只展示页面的原型，而是带有 Vue 3 应用入口、MySQL 8.4 LTS 数据库（MySQL 8.0 系列）、FastAPI 后端、可选 PyTorch CPU 预测、可配置 AI 服务和自动化测试的完整系统。
 
 项目名称：**智能 BI 数据洞察与报告生成平台**
 
@@ -22,10 +22,11 @@
 
 ```mermaid
 flowchart LR
-  U[业务用户] --> F[React + Vite 前端]
+  U[业务用户] --> F[Vue 3 + Vite 应用入口]
   F --> N[Nginx 反向代理]
   N --> B[FastAPI 后端]
-  B --> M[(MySQL 8.4)]
+  B --> M[(MySQL 8.4 LTS)]
+  B -.可选.-> T[PyTorch CPU 预测]
   B --> R[本地规则解析器]
   B --> A[用户配置的 DeepSeek 或兼容 API]
   A --> V[QueryIntent 严格校验]
@@ -33,7 +34,7 @@ flowchart LR
   S --> M
 ```
 
-运行方式：Docker Compose 负责 MySQL、后端和 Nginx 前端；双击 `启动智能BI系统.cmd` 即可启动。
+运行方式：Docker Compose 负责 MySQL 8.4 LTS、后端和 Nginx 前端；双击 `启动智能BI系统.cmd` 即可启动。现有工作台在 Vue 3 入口下以兼容视图保持稳定，页面按功能模块渐进迁移。
 
 ## 四、系统特色与创新点
 
@@ -61,6 +62,7 @@ flowchart LR
 - 外部 API 地址限制为 HTTP/HTTPS，DNS 解析、重定向和响应大小均受控。
 - 私有网络访问需要显式选择；DeepSeek 官方端点强制使用公网安全策略。
 - Docker 端口只绑定本机回环地址；测试使用隔离 Compose 项目、独立数据库卷和 Mock LLM。
+- PyTorch 是可显式开启的 CPU 推理适配器；未安装时预测明确回退 OLS，避免因模型运行时缺失中断系统。
 
 ## 五、六分钟答辩演示流程
 

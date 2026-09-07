@@ -21,6 +21,7 @@ Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动
 - [文档总览](文档/README.md)
 - [需求文档](文档/PRD.md)
 - [系统设计说明书](文档/系统设计说明书.md)
+- [技术约束复查与修订说明](文档/技术约束复查与修订说明.md)
 - [数据字典](文档/数据库与数据字典.md)
 - [数据版本追溯说明](文档/数据版本追溯说明.md)
 - [决策行动闭环说明](文档/决策行动闭环说明.md)
@@ -33,7 +34,7 @@ Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动
 
 ## Windows 本地运行
 
-系统使用 Docker Compose 运行前端、FastAPI 后端和 MySQL 8.4。MySQL 不需要单独安装，端口只绑定到本机 `127.0.0.1:3307`，不会暴露到局域网。
+系统使用 Docker Compose 运行 Vue 3 应用入口、FastAPI 后端和 MySQL 8.4 LTS（MySQL 8.0 系列）。现有工作台页面以兼容视图形式保留，确保场景、查询、报告、异常、预测、行动、配置等功能不变。MySQL 不需要单独安装，端口只绑定到本机 `127.0.0.1:3307`，不会暴露到局域网。
 
 ### 前置条件
 
@@ -70,6 +71,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 - 应用：`http://localhost:8080`
 - API 文档：`http://localhost:8080/api/docs`
 
+> **MySQL 版本说明：** 项目保留 MySQL 8.4 LTS。它属于原始技术方向指定的 MySQL 8.0 系列，维护性更好；不需要、也不会将现有数据卷降级。详见 [技术约束复查与修订说明](文档/技术约束复查与修订说明.md)。
+
 ### 停止、重置和测试
 
 正常停止会保留 MySQL 数据卷：
@@ -99,6 +102,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 配置页默认选择 **DeepSeek API**：只需输入自己的 API Key，系统会自动使用 `https://api.deepseek.com`、`deepseek-v4-flash`、60 秒超时和安全的公网访问策略。需要接入其他服务时，在下拉框选择“其他 OpenAI 兼容服务”，再填写服务名称、Base URL、模型、超时和网络选项。DeepSeek 请求会启用 JSON 输出模式，并兼容其可能返回的思考标签或 JSON 代码块；所有输出仍必须通过后端的严格查询意图校验。
 
 建议仅填入你拥有使用权限的 HTTPS OpenAI 兼容服务地址。若不再需要外部服务，可在配置页删除该配置并回到本地规则模式。
+
+### 可选 PyTorch 预测引擎
+
+默认预测使用可复现的 OLS 线性回归。若需按项目技术约束启用 PyTorch CPU 推理，在 `.env` 设置 `INSTALL_TORCH=true` 与 `FORECAST_ENGINE=torch`，再重新运行启动脚本。PyTorch 是可选组件，未安装时系统会明确回退 OLS，不影响其他功能。详见 [技术约束复查与修订说明](文档/技术约束复查与修订说明.md)。
 
 ### 行业场景和自有数据
 
@@ -144,7 +151,7 @@ PDF 项目说明中给出的技术方向包括：
 
 - AI 核心：Python、Text-to-SQL、大模型、Agent 技术
 - 前端：Vue.js
-- 数据库：MySQL 8.0
+- 数据库：MySQL 8.4 LTS（MySQL 8.0 系列）
 - 服务与部署：Nginx
 
-当前版本使用 React + Vite 构建前端，由 Nginx 提供静态资源和 `/api` 代理；FastAPI 提供查询、报告、异常、预测和 AI 配置接口，MySQL 8.4 保存业务数据、指标、模板、查询历史和加密配置。
+当前版本使用 Vue 3 应用入口和渐进式兼容工作台，由 Nginx 提供静态资源和 `/api` 代理；FastAPI 提供查询、报告、异常、预测和 AI 配置接口，MySQL 8.4 LTS 保存业务数据、指标、模板、查询历史和加密配置。PyTorch CPU 预测适配器在显式启用时参与趋势推理；模型服务只生成受控分析意图，不能直接执行 SQL。

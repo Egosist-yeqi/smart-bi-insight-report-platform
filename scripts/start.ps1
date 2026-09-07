@@ -124,7 +124,9 @@ function Write-NewEnvironmentFile {
         "APP_ENCRYPTION_KEY=$fernetKey",
         'FRONTEND_ORIGIN=http://localhost:8080',
         'QUERY_TIMEOUT_SECONDS=5',
-        'AI_DEFAULT_TIMEOUT_SECONDS=30'
+        'AI_DEFAULT_TIMEOUT_SECONDS=30',
+        'INSTALL_TORCH=false',
+        'FORECAST_ENGINE=ols'
     ) -join [Environment]::NewLine
     $temporaryPath = "$EnvironmentPath.$([Guid]::NewGuid().ToString('N')).tmp"
 
@@ -184,6 +186,22 @@ function Assert-EnvironmentIsValidAndAddDefaults {
             $defaultsToAdd += "$($default.Name)=$($default.Value)"
         }
     }
+    if ($values.ContainsKey('INSTALL_TORCH')) {
+        if ($values['INSTALL_TORCH'].ToLowerInvariant() -notin @('true', 'false')) {
+            throw 'INSTALL_TORCH must be true or false. Existing secrets were not changed.'
+        }
+    }
+    else {
+        $defaultsToAdd += 'INSTALL_TORCH=false'
+    }
+    if ($values.ContainsKey('FORECAST_ENGINE')) {
+        if ($values['FORECAST_ENGINE'].ToLowerInvariant() -notin @('ols', 'torch')) {
+            throw 'FORECAST_ENGINE must be ols or torch. Existing secrets were not changed.'
+        }
+    }
+    else {
+        $defaultsToAdd += 'FORECAST_ENGINE=ols'
+    }
 
     if ($defaultsToAdd.Count -gt 0) {
         $newline = if ($document.Text.Contains("`r`n")) { "`r`n" } else { "`n" }
@@ -193,7 +211,7 @@ function Assert-EnvironmentIsValidAndAddDefaults {
         }
         $updatedText += ($defaultsToAdd -join $newline) + $newline
         Write-EnvironmentTextAtomically -EnvironmentPath $EnvironmentPath -Document $document -Text $updatedText
-        Write-Host 'Added missing non-secret timeout defaults to the existing .env.'
+        Write-Host 'Added missing non-secret runtime defaults to the existing .env.'
     }
 }
 

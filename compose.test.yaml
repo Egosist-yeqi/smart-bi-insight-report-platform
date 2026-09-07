@@ -17,6 +17,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        INSTALL_TORCH: "false"
     environment:
       APP_ENV: test
       DATABASE_URL: mysql+pymysql://smart_bi_test:test_only_password@mysql:3306/smart_bi_test

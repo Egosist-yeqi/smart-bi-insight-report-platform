@@ -21,6 +21,7 @@ from app.analytics.schemas import (
     TrendPoint,
 )
 from app.db.models import MetricDefinition, SalesOrder
+from app.ml.torch_forecast import forecast_linear as torch_forecast_linear
 
 ZERO = Decimal("0")
 ANOMALY_THRESHOLD = Decimal("0.18")
@@ -307,7 +308,7 @@ def detect_anomalies(
 
 
 def forecast_next_month(
-    session: Session, *, through_month: date | None = None
+    session: Session, *, through_month: date | None = None, engine: str = "ols"
 ) -> ForecastResult:
     months = _monthly_aggregates(session, DashboardFilters())
     if through_month is not None:
@@ -337,15 +338,26 @@ def forecast_next_month(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
     next_month = _next_month(months[-1].month)
+    basis = (
+        f"使用{sample_count}个种子月度销售额进行普通最小二乘（OLS）线性回归；"
+        f"斜率为{slope.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}元/月。"
+    )
+    if engine == "torch":
+        torch_result = torch_forecast_linear([month.amount for month in months])
+        if torch_result is None:
+            basis += " 已请求 PyTorch CPU 推理，但运行环境未安装该可选依赖，已安全回退 OLS。"
+        else:
+            predicted_amount, torch_slope = torch_result
+            basis = (
+                f"使用{sample_count}个种子月度销售额通过 PyTorch CPU 最小二乘推理；"
+                f"斜率为{torch_slope}元/月。"
+            )
     return ForecastResult(
         history=history,
         prediction=ForecastPrediction(
             month=next_month,
             amount=predicted_amount,
             is_estimate=True,
-            basis=(
-                f"使用{sample_count}个种子月度销售额进行普通最小二乘（OLS）线性回归；"
-                f"斜率为{slope.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}元/月。"
-            ),
+            basis=basis,
         ),
     )

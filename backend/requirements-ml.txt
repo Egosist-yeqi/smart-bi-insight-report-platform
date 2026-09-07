@@ -1,0 +1,2 @@
+# Optional CPU inference dependency. Enable with INSTALL_TORCH=true.
+torch==2.5.1

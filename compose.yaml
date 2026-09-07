@@ -19,6 +19,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        INSTALL_TORCH: ${INSTALL_TORCH:-false}
     env_file: .env
     depends_on:
       mysql:
