@@ -97,7 +97,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 
 ### 本地规则模式和自有 AI API
 
-默认使用本地规则引擎，因此不配置任何外部 API Key 也可演示仪表盘、查询、报告、异常和预测。配置页中的 OpenAI 兼容 API 是私有的自愿启用功能：仅当你主动保存 Base URL、Bearer API Key、模型名称和超时时才会启用。保存的 Key 由 `.env` 中的 Fernet 主密钥加密，接口和日志只返回脱敏状态，绝不会把 Key 返回给浏览器。
+默认使用本地规则引擎，因此不配置任何外部 API Key 也可演示仪表盘、查询、报告、异常和预测。保存并启用 DeepSeek 或其他 OpenAI 兼容服务后，所有自然语言查询（包括场景模板问题）都会优先使用 AI 解析，只有模型请求失败或返回内容未通过安全校验时才回退到模板或本地规则。保存的 Key 由 `.env` 中的 Fernet 主密钥加密，接口和日志只返回脱敏状态，绝不会把 Key 返回给浏览器。
 
 配置页默认选择 **DeepSeek API**：只需输入自己的 API Key，系统会自动使用 `https://api.deepseek.com`、`deepseek-v4-flash`、60 秒超时和安全的公网访问策略。需要接入其他服务时，在下拉框选择“其他 OpenAI 兼容服务”，再填写服务名称、Base URL、模型、超时和网络选项。DeepSeek 请求会启用 JSON 输出模式，并兼容其可能返回的思考标签或 JSON 代码块；所有输出仍必须通过后端的严格查询意图校验。
 

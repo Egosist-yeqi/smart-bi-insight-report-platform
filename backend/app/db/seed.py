@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import MetricDefinition, ReportTemplate, SalesOrder
+from app.db.models import MetricDefinition, ReportTemplate, SalesOrder, ScenarioState
 from app.db.session import get_engine
 
 REGIONS = (
@@ -61,6 +61,11 @@ def _month_starts() -> tuple[date, ...]:
 
 
 def _seed_orders(session: Session) -> int:
+    # A selected demo scenario or imported customer dataset owns the whole table.
+    # Do not mix the baseline ecommerce seed into that active dataset on restart.
+    if session.get(ScenarioState, 1) is not None:
+        return 0
+
     orders: list[SalesOrder] = []
     external_order_ids = {
         f"SEED-{month_start:%Y%m}-{region_index}-{product_id}"

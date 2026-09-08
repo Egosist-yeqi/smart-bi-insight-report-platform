@@ -83,26 +83,26 @@ def run_query(
     try:
         template = template_for_question(question)
         decision_kind = decision_support_kind(question)
-        if template is not None:
-            resolved_intent = QueryIntent.model_validate(template.intent)
-            engine = "local"
-        elif decision_kind is not None:
-            resolved_intent = parse_local(question)
-            engine = "local"
-        else:
+        if resolver is not None:
             try:
-                resolved_intent = (
-                    resolver(question) if resolver is not None else parse_local(question)
-                )
+                resolved_intent = resolver(question)
             except AppError as exc:
-                if resolver is None or not exc.code.startswith("AI_"):
+                if not exc.code.startswith("AI_"):
                     raise
                 fallback_warning = query_fallback_warning(exc)
-                try:
-                    resolved_intent = parse_local(question)
-                except AppError:
-                    raise ai_fallback_unsupported_error(exc) from None
+                if template is not None:
+                    resolved_intent = QueryIntent.model_validate(template.intent)
+                else:
+                    try:
+                        resolved_intent = parse_local(question)
+                    except AppError:
+                        raise ai_fallback_unsupported_error(exc) from None
                 engine = "local"
+        elif template is not None:
+            resolved_intent = QueryIntent.model_validate(template.intent)
+            engine = "local"
+        else:
+            resolved_intent = parse_local(question)
         intent = _validated_intent(resolved_intent)
         built = build_select(intent)
         raw_rows = _execute_business_select(session, built)

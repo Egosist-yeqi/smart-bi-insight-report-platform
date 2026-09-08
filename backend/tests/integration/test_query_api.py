@@ -131,6 +131,31 @@ def test_query_service_executes_registered_quantity_metric(db_session):
     assert history.error_code is None
 
 
+def test_query_service_prefers_enabled_ai_resolver_for_a_template_question(db_session):
+    seed_database(db_session)
+    resolved_questions = []
+
+    def resolver(question):
+        resolved_questions.append(question)
+        return QueryIntent(
+            metric="amount",
+            dimensions=["region"],
+            time_range="latest_month",
+            sort_direction="desc",
+            limit=20,
+            analysis_kind="ranking",
+        )
+
+    question = "本月各区域销售额排名如何？"
+    result = run_query(db_session, question, resolver=resolver)
+
+    assert resolved_questions == [question]
+    assert result.engine == "ai"
+    assert result.provenance == "ai"
+    assert result.warning is None
+    assert result.rows
+
+
 def test_query_api_records_a_failed_unrecognized_question(api_client, db_session):
     response = api_client.post("/api/query", json={"question": "请删除销售订单"})
 

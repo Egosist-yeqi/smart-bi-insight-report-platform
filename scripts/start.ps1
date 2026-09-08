@@ -222,7 +222,7 @@ function Wait-ForHealthyApplication {
     do {
         try {
             $health = Invoke-RestMethod -Uri 'http://localhost:8080/api/health' -Method Get -TimeoutSec 5
-            if ($health.data.app -eq 'up' -and $health.data.database -eq 'up' -and $health.data.seeded_orders -eq 540) {
+            if ($health.data.app -eq 'up' -and $health.data.database -eq 'up' -and [int64]$health.data.seeded_orders -gt 0) {
                 return
             }
         }
@@ -232,7 +232,7 @@ function Wait-ForHealthyApplication {
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
 
-    throw 'Application did not become healthy within 180 seconds. Expected app=up, database=up, and seeded_orders=540. Run docker compose ps and docker compose logs backend.'
+    throw 'Application did not become healthy within 180 seconds. Expected app=up, database=up, and at least one active data row. Run docker compose ps and docker compose logs backend.'
 }
 
 $context = New-ComposeContext -ProjectName $script:NormalComposeProjectName -ComposeFileName 'compose.yaml'

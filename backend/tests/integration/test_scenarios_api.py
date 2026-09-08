@@ -39,6 +39,10 @@ def test_scenario_library_switches_to_a_complete_hospital_demo_dataset(db_sessio
     assert batch.source_type == "demo"
     assert batch.row_count == 540
     assert len(batch.data_fingerprint) == 64
+
+    restarted = seed_database(db_session)
+    assert restarted.orders_inserted == 0
+    assert db_session.scalar(select(func.count()).select_from(SalesOrder)) == 540
     app.dependency_overrides.clear()
 
 
