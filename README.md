@@ -6,7 +6,7 @@
 
 ## 30 秒开始演示
 
-Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动器会在 Docker Desktop 未运行时尝试启动它，系统就绪后自动打开 `http://localhost:8080`。
+Windows 用户直接双击仓库根目录的 `启动智能BI系统.cmd`。启动器会在 Docker Desktop 未运行时自动启动它，完整启动 MySQL、FastAPI 后端和 Nginx 前端，等待健康检查通过后自动打开 `http://localhost:8080`。Docker 构建临时失败时会自动重试，并尝试用最近一次成功构建的本地镜像恢复；启动过程保存在 `logs/launcher-latest.log`，Docker 原始输出保存在 `logs/docker-compose-latest.log`。
 
 首次启动需要 Docker Desktop 下载或构建镜像；之后日常启动会复用已有环境。应用启动后可直接体验本地规则模式，不需要填写任何 API Key。
 

@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$UseExistingImages
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -246,7 +248,13 @@ if (-not (Test-Path -LiteralPath $environmentPath)) {
 }
 Assert-EnvironmentIsValidAndAddDefaults -EnvironmentPath $environmentPath
 
-Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--build')
+if ($UseExistingImages) {
+    Write-Host 'Starting with the most recently built local images...'
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--no-build')
+}
+else {
+    Invoke-PinnedCompose -Docker $docker -Context $context -Arguments @('up', '-d', '--build')
+}
 Wait-ForHealthyApplication
 
 Write-Host 'Application: http://localhost:8080'

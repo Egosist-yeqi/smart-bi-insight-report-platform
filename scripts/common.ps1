@@ -71,9 +71,26 @@ function Invoke-PinnedCompose {
     )
 
     # Explicit flags override inherited COMPOSE_FILE and COMPOSE_PROJECT_NAME values.
-    & $Docker compose --project-directory $Context.RepositoryRoot --project-name $Context.ProjectName --file $Context.ComposeFile @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Docker Compose command failed. Review Docker Desktop status and run the documented diagnostics.'
+    if (-not [string]::IsNullOrWhiteSpace($env:SMART_BI_COMPOSE_LOG)) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            & $Docker compose --project-directory $Context.RepositoryRoot --project-name $Context.ProjectName --file $Context.ComposeFile @Arguments 2>&1 |
+                Tee-Object -FilePath $env:SMART_BI_COMPOSE_LOG -Append
+            $composeExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+    }
+    else {
+        & $Docker compose --project-directory $Context.RepositoryRoot --project-name $Context.ProjectName --file $Context.ComposeFile @Arguments
+        $composeExitCode = $LASTEXITCODE
+    }
+    if ($composeExitCode -ne 0) {
+        $operation = $Arguments -join ' '
+        $logHint = if ($env:SMART_BI_COMPOSE_LOG) { " Review $env:SMART_BI_COMPOSE_LOG for the original Docker output." } else { '' }
+        throw "Docker Compose failed with exit code $composeExitCode while running: docker compose $operation.$logHint"
     }
 }
 
