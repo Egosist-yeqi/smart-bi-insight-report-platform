@@ -34,3 +34,6 @@ logs/
 *.log
 task-6-report.md
 task-*-report.md
+
+# Local official reference templates from another group
+/1组/
